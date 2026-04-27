@@ -1,0 +1,96 @@
+---
+title: "Authenticate requests to the RetainPDF API"
+description: "All RetainPDF endpoints require X-API-Key. Learn how to get a key, pass it in requests, and distinguish it from OCR tokens and LLM provider API keys."
+---
+
+All RetainPDF API endpoints except `GET /health` require authentication via the `X-API-Key` request header. The header must be present on every request; missing or invalid keys return an authentication error.
+
+## Obtaining your API key
+
+RetainPDF reads API keys from one of two sources, checked in this order:
+
+1. **`auth.local.json`** — a local config file in the `rust_api` directory. When present, this file takes precedence over the environment variable. Keys are listed in an `api_keys` array.
+2. **`RUST_API_KEYS` environment variable** — a comma-separated list of accepted keys.
+
+<Note>
+  If `auth.local.json` exists, it overrides both key and concurrency settings from environment variables.
+</Note>
+
+## Passing your key
+
+Include the key as a header on every request:
+
+```http
+X-API-Key: your-key
+```
+
+**Example using curl:**
+
+```bash
+curl https://your-retainpdf-host:41000/api/v1/jobs \
+  -H "X-API-Key: your-key" \
+  -H "Content-Type: application/json" \
+  -d '{ "workflow": "book", "source": { "upload_id": "20260327190000-ab12cd" }, ... }'
+```
+
+If the key is missing or invalid, the API returns a non-zero error code and does not process the request.
+
+## Three distinct credentials
+
+RetainPDF jobs involve three separate credentials that are intentionally kept apart:
+
+| Credential | Where it goes | Purpose |
+|---|---|---|
+| `X-API-Key` | Request header | Grants access to the RetainPDF API itself |
+| `ocr.mineru_token` / `ocr.paddle_token` | Request body (`ocr` section) | Your OCR provider credentials (MinerU or PaddleOCR) |
+| `translation.api_key` | Request body (`translation` section) | Your LLM provider API key for the translation step |
+
+<Warning>
+  Do not confuse `X-API-Key` (the API access header) with `translation.api_key` (an LLM credential passed in the job request body). They serve different purposes and are validated separately.
+</Warning>
+
+### Example job body showing all three credential types
+
+```json
+{
+  "workflow": "book",
+  "source": { "upload_id": "20260327190000-ab12cd" },
+  "ocr": {
+    "provider": "mineru",
+    "mineru_token": "mineru-xxxx"
+  },
+  "translation": {
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-xxxx"
+  }
+}
+```
+
+## Credential security in responses
+
+Request bodies may include provider and model credentials, but **responses never echo raw credential values back**. Job details, diagnostic payloads, and event logs are redacted before leaving the API.
+
+Credential presence is indicated by `*_configured` boolean fields rather than the plaintext secret:
+
+<ResponseField name="mineru_token_configured" type="boolean">
+  `true` if the backend received a non-empty `ocr.mineru_token` when the job was created.
+</ResponseField>
+
+<ResponseField name="paddle_token_configured" type="boolean">
+  `true` if the backend received a non-empty `ocr.paddle_token` when the job was created.
+</ResponseField>
+
+<ResponseField name="api_key_configured" type="boolean">
+  `true` if the backend received a non-empty `translation.api_key` when the job was created.
+</ResponseField>
+
+The actual values of `mineru_token`, `paddle_token`, and `translation.api_key` are always returned as empty strings in any response that echoes request parameters.
+
+## CORS and preflight
+
+Browsers performing cross-origin requests may issue an `OPTIONS` preflight before the actual request. The RetainPDF API allows `OPTIONS` requests through without authentication, so CORS preflight succeeds without needing to include `X-API-Key`.
+
+<Tip>
+  If you are building a browser-based integration, make sure your actual `GET`/`POST` requests still include the `X-API-Key` header — only the `OPTIONS` preflight is exempted.
+</Tip>

@@ -1,0 +1,97 @@
+---
+title: "Self-host RetainPDF as a team service with Docker"
+description: "Deploy RetainPDF for your team or LAN using Docker Compose. Covers system requirements, startup commands, port configuration, and first-access steps."
+---
+
+The Docker deployment runs RetainPDF as a persistent service on your own infrastructure. This is the recommended approach when multiple people need to use the tool, when you want to access it from different devices on a LAN, or when you need to keep your documents on infrastructure you control. The web interface is accessible from any browser once the service is running.
+
+<Info>
+  The current Docker images are built for **x86\_64 / amd64** only. ARM architectures (Apple M-series, Raspberry Pi, ARM servers) are not supported unless you have an x86\_64 compatibility layer configured.
+</Info>
+
+<Steps>
+  <Step title="Check system requirements">
+    Confirm your host machine meets the minimum requirements before pulling the images:
+
+    | Requirement | Minimum | Recommended |
+    | --- | --- | --- |
+    | CPU architecture | x86\_64 / amd64 | x86\_64 / amd64 |
+    | CPU cores | 4 cores | 8+ cores |
+    | RAM | 8 GB | 16 GB |
+    | Disk space | 10 GB free | — |
+    | Operating system | Linux (Ubuntu 22.04 / 24.04 preferred) | — |
+
+    RetainPDF is CPU and memory intensive. It does not require a GPU. For multi-user workloads, start from 8 cores and 16 GB RAM.
+  </Step>
+
+  <Step title="Install Docker">
+    Make sure both `docker` and `docker compose` are installed on the host:
+
+    ```bash
+    docker --version
+    docker compose version
+    ```
+
+    If either command fails, install Docker Engine and the Compose plugin for your distribution from the [Docker documentation](https://docs.docker.com/engine/install/).
+  </Step>
+
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/wxyhgk/retain-pdf.git
+    cd retain-pdf/docker/delivery
+    ```
+  </Step>
+
+  <Step title="Start the service">
+    ```bash
+    docker compose up -d
+    ```
+
+    Docker will pull the required images and start the containers in the background. The first pull may take a few minutes depending on your connection speed.
+
+    To verify all containers are running:
+
+    ```bash
+    docker compose ps
+    ```
+  </Step>
+
+  <Step title="Access the web interface">
+    Once the service is up, open your browser and go to:
+
+    ```text
+    http://127.0.0.1:40001
+    ```
+
+    From here you can upload PDFs, configure API keys, and download translated results.
+  </Step>
+</Steps>
+
+## Port reference
+
+| Port | Service | Notes |
+| --- | --- | --- |
+| `40001` | Frontend web interface | Exposed on the host by default |
+| `41000` | Rust API | Internal to containers; not exposed on host by default |
+| `42000` | Sync interface | Internal to containers; not exposed on host by default |
+
+The frontend proxies requests to the backend internally, so ordinary users only need port `40001`. Ports `41000` and `42000` are available inside the container if you need direct API access.
+
+## Updating to a newer version
+
+To pull the latest images and restart:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+To pin a specific image version:
+
+```bash
+APP_IMAGE=wxyhgk/retainpdf-app:latest \
+WEB_IMAGE=wxyhgk/retainpdf-web:latest \
+docker compose up -d
+```
+
+For advanced configuration — including setting default API keys, adjusting upload limits, and configuring the auth allowlist — see [Docker deployment configuration](/deployment/docker).

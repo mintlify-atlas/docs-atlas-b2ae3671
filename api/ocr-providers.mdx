@@ -1,0 +1,118 @@
+---
+title: "Validate MinerU and PaddleOCR tokens before creating jobs"
+description: "Validate MinerU or PaddleOCR tokens without submitting OCR work. Returns ok, retryable, provider_code, provider_message, and operator_hint for each provider."
+---
+
+Before creating translation jobs, validate your OCR provider token to confirm credentials are accepted. Validation checks authentication with the upstream provider without submitting any real OCR work. Use these endpoints during onboarding or whenever you rotate credentials.
+
+<Note>
+  Token validation does not submit a real OCR task. No pages are processed and no charges are incurred from the OCR provider.
+</Note>
+
+---
+
+## POST /api/v1/providers/mineru/validate-token
+
+```http
+POST /api/v1/providers/mineru/validate-token
+```
+
+Validates a MinerU API token by probing the MinerU authentication endpoint.
+
+### Request body
+
+<ParamField body="mineru_token" type="string" required>
+  Your MinerU API token. Must not be a URL-like string.
+</ParamField>
+
+```json
+{
+  "mineru_token": "mineru-xxxx"
+}
+```
+
+### Example
+
+```bash
+curl -X POST http://127.0.0.1:41000/api/v1/providers/mineru/validate-token \
+  -H "X-API-Key: your-rust-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{"mineru_token": "mineru-xxxx"}'
+```
+
+---
+
+## POST /api/v1/providers/paddle/validate-token
+
+```http
+POST /api/v1/providers/paddle/validate-token
+```
+
+Validates a PaddleOCR API token. The server probes the Paddle API using a random job ID to test authentication without submitting real work. A `404` response from Paddle (job not found) indicates the token is valid and authenticated; `401` or `403` responses indicate an invalid token.
+
+### Request body
+
+<ParamField body="paddle_token" type="string" required>
+  Your PaddleOCR API token.
+</ParamField>
+
+<ParamField body="base_url" type="string" required>
+  The PaddleOCR service base URL.
+</ParamField>
+
+```json
+{
+  "paddle_token": "paddle-access-token",
+  "base_url": "https://paddleocr.aistudio-app.com"
+}
+```
+
+### Example
+
+```bash
+curl -X POST http://127.0.0.1:41000/api/v1/providers/paddle/validate-token \
+  -H "X-API-Key: your-rust-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "paddle_token": "paddle-access-token",
+    "base_url": "https://paddleocr.aistudio-app.com"
+  }'
+```
+
+---
+
+## Response fields
+
+Both endpoints return the same response structure.
+
+<ResponseField name="ok" type="boolean" required>
+  `true` if the token passed validation; `false` otherwise.
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  Short status label (e.g., `valid`, `invalid`, `error`).
+</ResponseField>
+
+<ResponseField name="summary" type="string">
+  Human-readable explanation of the validation result.
+</ResponseField>
+
+<ResponseField name="retryable" type="boolean">
+  `true` if the failure is transient and the request can be retried. `false` if the token is definitively invalid.
+</ResponseField>
+
+<ResponseField name="provider_code" type="string">
+  The raw status code or error code returned by the upstream OCR provider.
+</ResponseField>
+
+<ResponseField name="provider_message" type="string">
+  The raw message returned by the upstream provider, if available.
+</ResponseField>
+
+<ResponseField name="operator_hint" type="string">
+  Actionable guidance for resolving the validation failure (e.g., check token expiry, verify account permissions).
+</ResponseField>
+
+<ResponseField name="trace_id" type="string">
+  Trace identifier for correlating this validation request with upstream provider logs.
+</ResponseField>

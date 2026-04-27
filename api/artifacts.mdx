@@ -1,0 +1,204 @@
+---
+title: "Retrieve job artifacts and normalized documents"
+description: "GET /api/v1/jobs/{job_id}/artifacts returns readiness flags and download URLs for PDF, Markdown, ZIP, and normalized document outputs with full manifest fields."
+---
+
+After a job completes, its artifacts can be downloaded via stable resource URLs. The artifact index endpoint provides a structured manifest of all available outputs, including readiness flags and direct download links. No local filesystem paths are exposed.
+
+<Tip>
+  Check `pdf_ready`, `markdown_ready`, and `bundle_ready` before attempting a download. Requesting a file before it is ready returns an error.
+</Tip>
+
+## GET /api/v1/jobs/{job_id}/artifacts — artifact index
+
+```http
+GET /api/v1/jobs/{job_id}/artifacts
+```
+
+<ParamField path="job_id" type="string" required>
+  The job ID to retrieve artifacts for.
+</ParamField>
+
+Returns a structured manifest with readiness flags, convenience URL fields, and nested objects describing each artifact.
+
+### Response fields
+
+<ResponseField name="pdf_ready" type="boolean" required>
+  `true` when the translated PDF is available for download.
+</ResponseField>
+
+<ResponseField name="markdown_ready" type="boolean" required>
+  `true` when the translated Markdown file is available.
+</ResponseField>
+
+<ResponseField name="bundle_ready" type="boolean" required>
+  `true` when the ZIP bundle is ready.
+</ResponseField>
+
+<ResponseField name="pdf_url" type="string">
+  Convenience path for the PDF download endpoint.
+</ResponseField>
+
+<ResponseField name="markdown_url" type="string">
+  Convenience path for the Markdown endpoint.
+</ResponseField>
+
+<ResponseField name="markdown_images_base_url" type="string">
+  Base path for Markdown image assets.
+</ResponseField>
+
+<ResponseField name="bundle_url" type="string">
+  Convenience path for the ZIP bundle endpoint.
+</ResponseField>
+
+<ResponseField name="pdf" type="object">
+  <Expandable title="pdf fields">
+    <ResponseField name="ready" type="boolean">Whether the PDF is ready.</ResponseField>
+    <ResponseField name="path" type="string">API path for the PDF download.</ResponseField>
+    <ResponseField name="url" type="string">Absolute URL for the PDF download.</ResponseField>
+    <ResponseField name="content_type" type="string">Always `application/pdf`.</ResponseField>
+    <ResponseField name="file_name" type="string">Output filename (e.g., `paper-translated.pdf`).</ResponseField>
+    <ResponseField name="size_bytes" type="integer">File size in bytes, or `null` if not yet available.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="markdown" type="object">
+  <Expandable title="markdown fields">
+    <ResponseField name="ready" type="boolean">Whether Markdown is ready.</ResponseField>
+    <ResponseField name="json_path" type="string">Path for the JSON envelope response.</ResponseField>
+    <ResponseField name="json_url" type="string">Absolute URL for the JSON envelope response.</ResponseField>
+    <ResponseField name="raw_path" type="string">Path for the raw Markdown text response.</ResponseField>
+    <ResponseField name="raw_url" type="string">Absolute URL for the raw Markdown text response.</ResponseField>
+    <ResponseField name="images_base_path" type="string">Base path for Markdown images.</ResponseField>
+    <ResponseField name="images_base_url" type="string">Absolute base URL for Markdown images.</ResponseField>
+    <ResponseField name="file_name" type="string">Output filename (e.g., `full.md`).</ResponseField>
+    <ResponseField name="size_bytes" type="integer">File size in bytes, or `null` if not yet available.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="bundle" type="object">
+  <Expandable title="bundle fields">
+    <ResponseField name="ready" type="boolean">Whether the ZIP bundle is ready.</ResponseField>
+    <ResponseField name="path" type="string">API path for the bundle download.</ResponseField>
+    <ResponseField name="url" type="string">Absolute URL for the bundle download.</ResponseField>
+    <ResponseField name="content_type" type="string">Always `application/zip`.</ResponseField>
+    <ResponseField name="file_name" type="string">Output filename (e.g., `20260327190500-ef3456.zip`).</ResponseField>
+    <ResponseField name="size_bytes" type="integer">File size in bytes, or `null` if not yet available.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example response
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "pdf_ready": true,
+    "markdown_ready": true,
+    "bundle_ready": true,
+    "pdf_url": "/api/v1/jobs/20260327190500-ef3456/pdf",
+    "markdown_url": "/api/v1/jobs/20260327190500-ef3456/markdown",
+    "markdown_images_base_url": "/api/v1/jobs/20260327190500-ef3456/markdown/images/",
+    "bundle_url": "/api/v1/jobs/20260327190500-ef3456/download",
+    "pdf": {
+      "ready": true,
+      "path": "/api/v1/jobs/20260327190500-ef3456/pdf",
+      "url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/pdf",
+      "method": "GET",
+      "content_type": "application/pdf",
+      "file_name": "paper-translated.pdf",
+      "size_bytes": 1048576
+    },
+    "markdown": {
+      "ready": true,
+      "json_path": "/api/v1/jobs/20260327190500-ef3456/markdown",
+      "json_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown",
+      "raw_path": "/api/v1/jobs/20260327190500-ef3456/markdown?raw=true",
+      "raw_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown?raw=true",
+      "images_base_path": "/api/v1/jobs/20260327190500-ef3456/markdown/images/",
+      "images_base_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown/images/",
+      "file_name": "full.md",
+      "size_bytes": 18234
+    },
+    "bundle": {
+      "ready": true,
+      "path": "/api/v1/jobs/20260327190500-ef3456/download",
+      "url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/download",
+      "method": "GET",
+      "content_type": "application/zip",
+      "file_name": "20260327190500-ef3456.zip",
+      "size_bytes": null
+    }
+  }
+}
+```
+
+---
+
+## GET /api/v1/jobs/{job_id}/pdf — raw PDF download
+
+```http
+GET /api/v1/jobs/{job_id}/pdf
+```
+
+Returns the final translated PDF as a raw `application/pdf` stream. Check `pdf_ready` in the artifact index before calling this endpoint.
+
+---
+
+## GET /api/v1/jobs/{job_id}/markdown — Markdown
+
+```http
+GET /api/v1/jobs/{job_id}/markdown
+GET /api/v1/jobs/{job_id}/markdown?raw=true
+```
+
+Without the `raw` parameter, returns a JSON envelope with the full Markdown content and image base URLs. With `?raw=true`, returns the raw Markdown text as `text/markdown; charset=utf-8`.
+
+---
+
+## GET /api/v1/jobs/{job_id}/markdown/images/{path} — Markdown images
+
+```http
+GET /api/v1/jobs/{job_id}/markdown/images/{path}
+```
+
+<ParamField path="path" type="string" required>
+  Relative path to the image asset within the Markdown image directory.
+</ParamField>
+
+Returns the raw image file stream. Use the `images_base_url` from the artifact index or Markdown response to construct image paths.
+
+---
+
+## GET /api/v1/jobs/{job_id}/download — ZIP bundle
+
+```http
+GET /api/v1/jobs/{job_id}/download
+```
+
+Returns an `application/zip` archive. The bundle contains:
+
+- The final translated PDF
+- `markdown/full.md` if present
+- `markdown/images/**` if present
+
+---
+
+## GET /api/v1/jobs/{job_id}/normalized-document — normalized document JSON
+
+```http
+GET /api/v1/jobs/{job_id}/normalized-document
+```
+
+Returns the `document.v1.json` file produced by the normalization stage. This is the structured OCR output that the translation stage reads. Fields include `geometry`, `content`, `layout_role`, `semantic_role`, `structure_role`, `policy`, and `provenance`.
+
+---
+
+## GET /api/v1/jobs/{job_id}/normalization-report — normalization quality report
+
+```http
+GET /api/v1/jobs/{job_id}/normalization-report
+```
+
+Returns the normalization quality report (`document.v1.report.json`). This report covers adapter results, defaults applied, and validation findings from the normalization stage. The `normalization_summary` field in the job detail is a lightweight projection of this report; use this endpoint when you need the full report.

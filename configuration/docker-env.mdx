@@ -1,0 +1,112 @@
+---
+title: "Docker environment variables for RetainPDF"
+description: "RetainPDF Docker env vars: app.env controls ports, concurrency, and font paths; web.env sets the frontend API key, default model, and MinerU token."
+---
+
+RetainPDF's Docker deployment is configured through two environment files in the `docker/` directory: `app.env` controls the backend service, and `web.env` controls the frontend. Edit these files before running `docker compose up` to change defaults without touching the compose file itself.
+
+<Note>
+  Only port `40001` is exposed to the host by default. The backend ports `41000` (full API) and `42000` (simple sync interface) remain internal to the Docker network and are accessed by the frontend through the same-origin proxy.
+</Note>
+
+## docker/app.env — backend variables
+
+These variables configure the Rust API backend and the Python worker layer that runs inside the `app` container.
+
+### Ports
+
+<ParamField body="RUST_API_PORT" type="number" default="41000">
+  The port the full Rust API listens on inside the container. This is the primary JSON API used for uploads, job creation, status polling, and downloads.
+</ParamField>
+
+<ParamField body="RUST_API_SIMPLE_PORT" type="number" default="42000">
+  The port the simple synchronous interface listens on inside the container. Requests to this port block until the translation job finishes and return a ZIP directly. Must match `simple_port` in `auth.local.json`.
+</ParamField>
+
+### Concurrency and upload limits
+
+<ParamField body="RUST_API_MAX_RUNNING_JOBS" type="number">
+  Maximum number of translation jobs that can run concurrently on this instance. Queued jobs start automatically when a slot is released. If not set, the value in `auth.local.json` takes effect; if neither is set, the code default of `4` applies.
+</ParamField>
+
+<ParamField body="RUST_API_NORMAL_MAX_BYTES" type="string" default="200MB">
+  Maximum file size accepted by the upload endpoint. The default of `200MB` reflects the upstream MinerU processing limit. Setting this higher than the upstream limit will not increase actual throughput.
+</ParamField>
+
+<ParamField body="RUST_API_NORMAL_MAX_PAGES" type="number" default="600">
+  Maximum page count accepted by the upload endpoint. The default of `600` pages reflects the upstream MinerU limit.
+</ParamField>
+
+### Binaries and fonts
+
+<ParamField body="PYTHON_BIN" type="string">
+  Path to the Python interpreter used to invoke OCR normalization, translation, and Typst rendering scripts inside the container.
+</ParamField>
+
+<ParamField body="TYPST_BIN" type="string">
+  Path to the `typst` executable inside the container. RetainPDF uses Typst to compile translated content back into PDF.
+</ParamField>
+
+<ParamField body="RETAIN_PDF_FONT_PATH" type="string">
+  Filesystem path to the default CJK font file inside the container.
+</ParamField>
+
+<ParamField body="RETAIN_PDF_TYPST_FONT_FAMILY" type="string">
+  The Typst font family name that maps to the font at `RETAIN_PDF_FONT_PATH`. This is the default used when no `typst_font_family` is specified in a job request.
+</ParamField>
+
+### Directory layout
+
+<ParamField body="PROJECT_ROOT" type="string">
+  Root directory of the project inside the container.
+</ParamField>
+
+<ParamField body="RUST_API_ROOT" type="string">
+  Directory containing the compiled Rust API binary inside the container.
+</ParamField>
+
+<ParamField body="RUST_API_DATA_DIR" type="string">
+  Runtime data directory for the Rust API. Uploaded PDFs, the SQLite job database, job workspaces, and generated artifacts are all stored here.
+</ParamField>
+
+<ParamField body="OUTPUT_ROOT" type="string">
+  Root directory where completed job output files are written inside the container.
+</ParamField>
+
+---
+
+## docker/web.env — frontend variables
+
+These variables are injected into the `web` container at startup and control what defaults the frontend presents to users.
+
+<ParamField body="FRONT_API_BASE" type="string">
+  The API base URL the frontend uses for backend requests. Leave empty to let the frontend automatically use the same-origin proxy, which is the correct setting for standard Docker deployments.
+</ParamField>
+
+<ParamField body="FRONT_X_API_KEY" type="string">
+  The `X-API-Key` value the frontend attaches to every backend API request. This **must** match one of the keys listed in `docker/auth.local.json`. See [Authentication](/configuration/auth) for details.
+</ParamField>
+
+<ParamField body="FRONT_MINERU_TOKEN" type="string">
+  Default MinerU token pre-filled in the frontend API configuration dialog. Leave empty if you want end users to supply their own token at translation time.
+</ParamField>
+
+<ParamField body="FRONT_MODEL_API_KEY" type="string">
+  Default LLM provider API key pre-filled in the frontend. Leave empty if you want end users to supply their own key.
+</ParamField>
+
+<ParamField body="FRONT_MODEL" type="string">
+  Default model name shown in the frontend, for example `deepseek-chat`.
+</ParamField>
+
+<ParamField body="FRONT_BASE_URL" type="string">
+  Default model API base URL shown in the frontend, for example `https://api.deepseek.com/v1`.
+</ParamField>
+
+<ParamField body="FRONT_PROVIDER_PRESET" type="string" default="deepseek">
+  Which provider preset the frontend exposes. The public Docker image currently ships with `deepseek` as the only exposed preset.
+</ParamField>
+
+<Note>
+  `FRONT_MINERU_TOKEN` and `FRONT_MODEL_API_KEY` can be left empty. When they are empty, users are prompted to enter their credentials in the API configuration dialog in the top-right corner of the web UI. Pre-filling these variables is a convenience for private or team deployments where you control the credentials centrally.
+</Note>

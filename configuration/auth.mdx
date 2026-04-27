@@ -1,0 +1,70 @@
+---
+title: "Authentication and API key configuration"
+description: "Configure RetainPDF API keys in auth.local.json, pass X-API-Key in requests, and learn the difference between the backend key, OCR tokens, and LLM API keys."
+---
+
+RetainPDF uses API key authentication for all endpoints except the health check. Every request to the backend must include an `X-API-Key` header whose value matches one of the keys you have configured. The health check at `GET /health` is the only endpoint that is openly accessible without a key.
+
+## auth.local.json
+
+The primary place to configure allowed API keys is `docker/auth.local.json`. When this file is present, it takes precedence over the `RUST_API_KEYS` environment variable. Create or edit it in the `docker/` directory before starting the containers.
+
+```json
+{
+  "api_keys": [
+    "replace-with-a-strong-random-key"
+  ],
+  "max_running_jobs": 4,
+  "simple_port": 42000
+}
+```
+
+<ParamField body="api_keys" type="string[]" required>
+  The list of accepted backend API keys. Any request whose `X-API-Key` header matches one of these values is granted access. Generate each key with a cryptographically secure random source, for example `openssl rand -hex 32`.
+</ParamField>
+
+<ParamField body="max_running_jobs" type="number" default="4">
+  Maximum number of translation jobs allowed to run concurrently on this instance. Jobs that arrive when all slots are occupied enter a `queued` state and start automatically as slots are released.
+</ParamField>
+
+<ParamField body="simple_port" type="number" default="42000">
+  The port the simple synchronous interface listens on inside the container. This must match `RUST_API_SIMPLE_PORT` in `docker/app.env`.
+</ParamField>
+
+## Making authenticated requests
+
+Pass your key in the `X-API-Key` request header on every call except `/health`.
+
+```bash
+curl -X POST "http://127.0.0.1:40001/api/v1/uploads" \
+  -H "X-API-Key: replace-with-a-strong-random-key" \
+  -F "file=@/path/to/your.pdf"
+```
+
+The frontend automatically attaches the key configured in `FRONT_X_API_KEY` (`docker/web.env`). If you are calling the API directly from a script or CLI, you must supply the header yourself.
+
+## Three distinct credentials
+
+RetainPDF involves three separate credentials that are easy to confuse:
+
+| Credential | Where it goes | Purpose |
+|---|---|---|
+| `X-API-Key` header | Request header | Grants access to the RetainPDF backend API |
+| `translation.api_key` | Job request body | Your LLM provider API key (e.g. DeepSeek) |
+| `ocr.mineru_token` | Job request body | Your MinerU OCR service token |
+
+`X-API-Key` controls who can use your RetainPDF instance. The other two are passed through to the external services that perform OCR and translation — they are never used to authenticate to the RetainPDF backend itself.
+
+## Credential redaction in responses
+
+Credentials submitted in request bodies are never echoed back in API responses. Instead, the API surfaces whether each credential was received through boolean fields:
+
+- `ocr.mineru_token_configured` — `true` if a MinerU token was present in the request
+- `ocr.paddle_token_configured` — `true` if a Paddle token was present
+- `translation.api_key_configured` — `true` if an LLM provider key was present
+
+The raw values are blanked in job detail responses, event payloads, diagnostics, and any replay output.
+
+<Warning>
+  Never commit `auth.local.json` containing real API keys to version control. Add `docker/auth.local.json` to your `.gitignore` and distribute keys to team members through a secrets manager or a secure out-of-band channel.
+</Warning>

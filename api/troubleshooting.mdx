@@ -1,0 +1,199 @@
+---
+title: "Troubleshoot failed RetainPDF translation jobs"
+description: "How to diagnose job failures using status fields, the events stream, log_tail, and the failure diagnostic object in the API response."
+---
+
+When a job fails, RetainPDF captures structured failure information in the job detail response that helps pinpoint the cause. Rather than reading raw log files, start with the API fields described below — they surface the most actionable signal first.
+
+## Priority diagnostic fields
+
+Fetch the job detail with:
+
+```bash
+curl -H "X-API-Key: $KEY" http://127.0.0.1:41000/api/v1/jobs/{job_id}
+```
+
+When a job has `"status": "failed"`, inspect these fields in the response in order:
+
+| Field | What it tells you |
+|---|---|
+| `stage` | The pipeline stage where failure occurred (e.g. `ocr_processing`, `translating`, `rendering`). |
+| `stage_detail` | Human-readable description of what the stage was doing at the time of failure. |
+| `failure` | Structured failure object with machine-readable codes, category, and remediation hints. |
+| `log_tail` | Last lines from the worker log, including `ERROR:` and `CAUSE[n]:` chains. |
+
+<Tip>
+  The `failure` object is the formal contract. The older `failure_diagnostic` field is a compatibility projection derived from `failure` and is preserved for older clients only.
+</Tip>
+
+---
+
+## The `failure` object
+
+When the backend has classified the failure, `data.failure` in the job detail response contains the following fields.
+
+| Field | Type | Description |
+|---|---|---|
+| `failed_stage` | string | The pipeline stage that produced the failure. |
+| `failure_code` | string | Machine-readable failure code. |
+| `failure_category` | string | Broad category such as `provider_error`, `timeout`, or `render_error`. |
+| `provider` | string | OCR provider involved, if applicable (e.g. `"mineru"`, `"paddle"`). |
+| `provider_stage` | string | Provider-internal stage at the time of failure (e.g. `"mineru_upload"`, `"paddle_running"`). |
+| `provider_code` | string | HTTP status code or provider-specific error code returned by the upstream service. |
+| `summary` | string | Short human-readable summary of what went wrong. |
+| `root_cause` | string | Inferred root cause of the failure. |
+| `retryable` | boolean | Whether retrying the same request with the same parameters is likely to succeed. |
+| `suggestion` | string | Remediation hint from the backend. |
+| `last_log_line` | string | Last line of the worker log captured before the failure was classified. |
+
+<Note>
+  If `retryable` is `true`, you can resubmit the job with the same parameters. Transient provider outages and network timeouts are common cases where this flag is set.
+</Note>
+
+---
+
+## Fetching the events stream
+
+The events stream gives a chronological view of every state transition and progress update across all pipeline stages. Use it when the job detail fields alone do not pinpoint the failure.
+
+```bash
+curl -H "X-API-Key: $KEY" http://127.0.0.1:41000/api/v1/jobs/{job_id}/events
+```
+
+Events are returned in ascending sequence order. Each event includes:
+
+| Field | Description |
+|---|---|
+| `stage` | Unified pipeline stage at the time of the event. |
+| `event_type` | Type of event (prefer this over the legacy `event` alias). |
+| `stage_detail` | Human-readable detail string for the stage. |
+| `provider_stage` | Provider-private substage, when applicable. |
+| `progress_current` | Current progress unit (e.g. batch number). |
+| `progress_total` | Total progress units for this stage. |
+| `elapsed_ms` | Milliseconds elapsed since the job started. |
+| `retry_count` | Number of retries attempted for this event. |
+
+You can paginate long event streams with `?limit=N&offset=M` query parameters.
+
+---
+
+## Common failure scenarios
+
+<AccordionGroup>
+  <Accordion title="OCR provider token invalid">
+    **Symptom:** The job fails early at `ocr_submitting` or immediately after. The `failure` object has `failure_category: "provider_error"` and a `provider_code` of `401` or `403`.
+
+    **Diagnosis steps:**
+
+    1. Confirm the token was transmitted by checking `request_payload.ocr.mineru_token_configured` or `request_payload.ocr.paddle_token_configured` in the job detail — these are `true` if the backend received a non-empty value.
+    2. Validate the token directly using the provider validation endpoint:
+
+    ```bash
+    # MinerU
+    curl -X POST -H "X-API-Key: $KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"mineru_token": "mineru-xxxx"}' \
+      http://127.0.0.1:41000/api/v1/providers/mineru/validate-token
+
+    # PaddleOCR
+    curl -X POST -H "X-API-Key: $KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"paddle_token": "paddle-xxxx", "base_url": "https://paddleocr.aistudio-app.com"}' \
+      http://127.0.0.1:41000/api/v1/providers/paddle/validate-token
+    ```
+
+    3. Inspect `provider_code` and `operator_hint` in the validate-token response. The `operator_hint` field contains a plain-language explanation of what the provider returned.
+    4. If the token is invalid, obtain a fresh token from the provider portal and resubmit the job.
+
+    <Note>
+      PaddleOCR validation uses a synthetic job ID to probe authentication without submitting a real OCR task. A `"job not found"` or `404` response from Paddle is treated as authentication success. Only `401` and `403` responses are treated as token invalid.
+    </Note>
+  </Accordion>
+
+  <Accordion title="MinerU upload failed">
+    **Symptom:** The job fails during `ocr_submitting` or at `provider_stage: "mineru_upload"`. The `failure_category` is `"provider_error"` and `log_tail` contains a `CAUSE[n]:` chain.
+
+    **Diagnosis steps:**
+
+    1. Read the `log_tail` array in the job detail response. The backend preserves the full error chain in the form:
+
+    ```text
+    MinerU apply upload url failed
+    CAUSE[0]: POST https://mineru.net/api/v4/file-urls/batch failed
+    CAUSE[1]: 503 Service Unavailable
+    ```
+
+    2. Note the `provider_trace_id` from the `failure` object if present. Use it when contacting MinerU support.
+    3. Check whether `retryable` is `true`. MinerU upload failures caused by transient upstream errors (5xx responses) are typically retryable.
+    4. If the error persists, fetch the events stream to see the exact sequence of upload attempts and retry counts:
+
+    ```bash
+    curl -H "X-API-Key: $KEY" http://127.0.0.1:41000/api/v1/jobs/{job_id}/events
+    ```
+
+    Look for events with `provider_stage: "mineru_upload"` and non-zero `retry_count`.
+  </Accordion>
+
+  <Accordion title="Translation timeout">
+    **Symptom:** The job fails at `translating` or `translation_prepare` with `failure_category: "timeout"`. Duration matches the `runtime.timeout_seconds` value.
+
+    **Diagnosis steps:**
+
+    1. Confirm the stage by checking `stage` and `stage_detail` in the job detail response.
+    2. Check `failure_category` — a value of `"timeout"` confirms the job ran out of time rather than encountering a hard error.
+    3. Review the events stream to see how far translation progressed before the timeout:
+
+    ```bash
+    curl -H "X-API-Key: $KEY" http://127.0.0.1:41000/api/v1/jobs/{job_id}/events
+    ```
+
+    Look for the last event with `stage: "translating"` and note `progress_current` vs `progress_total`.
+
+    4. Resubmit the job with a higher `runtime.timeout_seconds` value. For large documents or slow LLM providers, `3600` (one hour) is a reasonable starting point:
+
+    ```json
+    {
+      "runtime": {
+        "timeout_seconds": 3600
+      }
+    }
+    ```
+
+    5. If the LLM provider is responding slowly, consider increasing `translation.workers` or switching to a faster model.
+
+    <Warning>
+      The server-side `RUST_API_MAX_RUNNING_JOBS` concurrency limit means queued jobs wait before starting. A job that spends time queued still counts wall-clock time against `timeout_seconds` once it starts running — the timeout applies to runtime, not queue time.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Render failed">
+    **Symptom:** The job fails at the `rendering` stage after OCR and translation completed successfully. Artifacts such as `normalized_document` may be ready, but `artifacts.pdf_ready` is `false`.
+
+    **Diagnosis steps:**
+
+    1. Confirm the failed stage with `stage: "rendering"` or `stage: "render_prepare"` in the job detail.
+    2. Fetch the events stream and filter for rendering-stage events:
+
+    ```bash
+    curl -H "X-API-Key: $KEY" http://127.0.0.1:41000/api/v1/jobs/{job_id}/events
+    ```
+
+    Look for events where `stage` is `"rendering"` or `"render_prepare"`. The `stage_detail` and `last_log_line` in the `failure` object often identify whether the issue is a Typst compilation error or a font-related problem.
+
+    3. If the failure message mentions a font, verify that `render.typst_font_family` is available in the server's Typst environment. The default `"Source Han Serif SC"` is bundled; custom fonts must be installed separately.
+    4. For layout overflow issues, try reducing `render.body_font_size_factor` (e.g. `0.90`) or adjusting the `inner_bbox_shrink_x` / `inner_bbox_shrink_y` values to give translated text more room.
+    5. If the original translation artifacts are intact, use `workflow=render` with `source.artifact_job_id` pointing to the failed job to rerun only the render stage without repeating OCR and translation:
+
+    ```json
+    {
+      "workflow": "render",
+      "source": {
+        "artifact_job_id": "20260327190500-ef3456"
+      },
+      "render": {
+        "body_font_size_factor": 0.90
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>

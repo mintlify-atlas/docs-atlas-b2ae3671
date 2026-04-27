@@ -1,0 +1,179 @@
+---
+title: "Manage translation glossaries via REST API"
+description: "CRUD endpoints for RetainPDF named glossaries plus a CSV parse helper. Covers request/response shapes, inline vs named entry precedence, and delete behavior."
+---
+
+Named glossaries store source→target term mappings that guide translation. Create them once and reference them in any job. When a job runs with a glossary, the pipeline receives the term mappings as guidance in the translation prompt. Glossary usage is prompt-based in v1; the pipeline does not perform a forced post-translation find-and-replace pass.
+
+<Note>
+  You can combine a named glossary (`translation.glossary_id`) with inline entries (`translation.glossary_entries`) in a job request. Inline entries overlay named glossary entries that share the same `source` value.
+</Note>
+
+---
+
+## POST /api/v1/glossaries — create a glossary
+
+```http
+POST /api/v1/glossaries
+```
+
+### Request body
+
+<ParamField body="name" type="string" required>
+  A human-readable name for the glossary (e.g., `semiconductor`).
+</ParamField>
+
+<ParamField body="entries" type="array" required>
+  Array of term mapping objects.
+
+  <Expandable title="entry fields">
+    <ParamField body="entries[].source" type="string" required>
+      The source-language term.
+    </ParamField>
+    <ParamField body="entries[].target" type="string" required>
+      The target-language translation for this term.
+    </ParamField>
+    <ParamField body="entries[].note" type="string">
+      Optional context or domain note (e.g., `materials`).
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+```json
+{
+  "name": "semiconductor",
+  "entries": [
+    {"source": "band gap", "target": "带隙", "note": "materials"},
+    {"source": "density of states", "target": "态密度", "note": ""}
+  ]
+}
+```
+
+### Response fields
+
+<ResponseField name="glossary_id" type="string" required>
+  Unique identifier for the glossary. Use this in `translation.glossary_id` when creating a job.
+</ResponseField>
+
+<ResponseField name="name" type="string" required>
+  The glossary name.
+</ResponseField>
+
+<ResponseField name="entry_count" type="integer" required>
+  Number of entries stored in the glossary.
+</ResponseField>
+
+<ResponseField name="created_at" type="string" required>
+  ISO 8601 timestamp of when the glossary was created.
+</ResponseField>
+
+---
+
+## GET /api/v1/glossaries — list glossaries
+
+```http
+GET /api/v1/glossaries
+```
+
+Returns an array of glossary summaries. Each item includes `glossary_id`, `name`, `entry_count`, `created_at`, and `updated_at`.
+
+---
+
+## GET /api/v1/glossaries/{glossary_id} — get a glossary
+
+```http
+GET /api/v1/glossaries/{glossary_id}
+```
+
+<ParamField path="glossary_id" type="string" required>
+  The glossary ID to retrieve.
+</ParamField>
+
+Returns the full glossary including its `entries` array.
+
+<ResponseField name="glossary_id" type="string">Unique glossary identifier.</ResponseField>
+<ResponseField name="name" type="string">Glossary name.</ResponseField>
+<ResponseField name="entry_count" type="integer">Number of entries.</ResponseField>
+<ResponseField name="entries" type="array">
+  Full list of term mapping objects, each with `source`, `target`, and `note`.
+</ResponseField>
+<ResponseField name="created_at" type="string">Creation timestamp.</ResponseField>
+<ResponseField name="updated_at" type="string">Last update timestamp.</ResponseField>
+
+---
+
+## PUT /api/v1/glossaries/{glossary_id} — update a glossary
+
+```http
+PUT /api/v1/glossaries/{glossary_id}
+```
+
+<ParamField path="glossary_id" type="string" required>
+  The glossary ID to update.
+</ParamField>
+
+Accepts the same body as the create endpoint (`name` and `entries`). The update replaces the glossary's name and entries atomically.
+
+---
+
+## DELETE /api/v1/glossaries/{glossary_id} — delete a glossary
+
+```http
+DELETE /api/v1/glossaries/{glossary_id}
+```
+
+<ParamField path="glossary_id" type="string" required>
+  The glossary ID to delete.
+</ParamField>
+
+Permanently removes the glossary. Existing jobs that referenced this glossary are not affected; the glossary summary is preserved in their `translation-manifest.json`.
+
+---
+
+## POST /api/v1/glossaries/parse-csv — parse CSV into entries
+
+```http
+POST /api/v1/glossaries/parse-csv
+```
+
+A helper endpoint that parses a CSV string into a normalized `entries` array. Use this when your source data is a CSV file. The frontend should convert Excel files to CSV before calling this endpoint; the backend does not parse Excel format.
+
+### Request body
+
+<ParamField body="csv_text" type="string" required>
+  Plain CSV text. The first row must be a header row with columns `source`, `target`, and optionally `note`.
+</ParamField>
+
+```json
+{
+  "csv_text": "source,target,note\nband gap,带隙,materials\ndensity of states,态密度,\n"
+}
+```
+
+### Response fields
+
+<ResponseField name="entries" type="array">
+  Normalized array of entry objects, each with `source`, `target`, and `note`.
+</ResponseField>
+
+<ResponseField name="entry_count" type="integer">
+  Number of entries parsed from the CSV.
+</ResponseField>
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "entries": [
+      {"source": "band gap", "target": "带隙", "note": "materials"},
+      {"source": "density of states", "target": "态密度", "note": ""}
+    ],
+    "entry_count": 2
+  }
+}
+```
+
+<Tip>
+  After parsing, pass the `entries` array directly to `translation.glossary_entries` in a job request, or use it as the `entries` body when calling `POST /api/v1/glossaries` to create a named glossary.
+</Tip>

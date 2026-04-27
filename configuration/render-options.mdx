@@ -1,0 +1,82 @@
+---
+title: "PDF render options and Typst font settings"
+description: "Tune RetainPDF's Typst PDF output: font family, compress DPI, body font size factor, line height, and bounding box shrink factors for normal and dense layouts."
+---
+
+RetainPDF renders translated content into PDF using Typst, and exposes several options to tune the visual output. All render options are passed inside the `render` object of the job creation request body. Every field has a sensible default so you only need to specify what you want to change.
+
+## Options reference
+
+<ParamField body="render_mode" type="string" default="auto">
+  Controls how Typst source files are assembled before compilation. `"auto"` (the only stable value) lets the backend select the appropriate rendering strategy based on the document structure. Leave this as `"auto"` unless instructed otherwise.
+</ParamField>
+
+<ParamField body="compile_workers" type="number" default="0">
+  Number of parallel Typst compilation workers. `0` means the backend chooses based on available resources. Increasing this speeds up rendering for documents with many pages; lowering it reduces peak CPU and memory use.
+</ParamField>
+
+<ParamField body="typst_font_family" type="string" default="Source Han Serif SC">
+  The Typst font family used for body text in the translated PDF. The default is `"Source Han Serif SC"`, which covers CJK characters well. Change this to any font family that is available inside the container — the font must be reachable at the path configured by `RETAIN_PDF_FONT_PATH`.
+</ParamField>
+
+<ParamField body="pdf_compress_dpi" type="number" default="200">
+  DPI used when compressing raster images embedded in the output PDF. Lower values reduce file size at the cost of image sharpness; higher values preserve quality but increase file size. `200` DPI is a reasonable balance for screen reading and archival.
+</ParamField>
+
+<ParamField body="translated_pdf_name" type="string">
+  Custom filename for the output PDF artifact. When left empty, the backend derives a name from the original uploaded filename. Useful if you want predictable filenames for downstream automation.
+</ParamField>
+
+<ParamField body="body_font_size_factor" type="number" default="0.95">
+  Scales body text size relative to the size detected in the source PDF. A value of `0.95` shrinks body text to 95% of the original, which helps translated text (which is often longer than the source) fit within the original layout boundaries. Set to `1.0` to disable scaling.
+</ParamField>
+
+<ParamField body="body_leading_factor" type="number" default="1.08">
+  Multiplier applied to the line height (leading) of body text. `1.08` adds a small amount of breathing room between lines, which improves readability for CJK text. Decrease toward `1.0` for tighter line spacing.
+</ParamField>
+
+## Bounding box shrink factors
+
+When Typst places translated text blocks, it fits them inside bounding boxes derived from the source PDF's layout. These four factors control how much each box is inset from its original boundary, preventing text from overflowing into adjacent elements.
+
+<ParamField body="inner_bbox_shrink_x" type="number" default="0.035">
+  Horizontal inset applied to standard text bounding boxes, as a fraction of box width. A value of `0.035` pulls the left and right edges inward by 3.5%, giving text a small margin from the box boundary.
+</ParamField>
+
+<ParamField body="inner_bbox_shrink_y" type="number" default="0.04">
+  Vertical inset applied to standard text bounding boxes, as a fraction of box height. A value of `0.04` pulls the top and bottom edges inward by 4%.
+</ParamField>
+
+<ParamField body="inner_bbox_dense_shrink_x" type="number" default="0.025">
+  Horizontal inset for bounding boxes that are classified as dense (tightly packed regions such as multi-column layouts or figure captions). A smaller inset than `inner_bbox_shrink_x` is used because dense regions have less surrounding whitespace to spare.
+</ParamField>
+
+<ParamField body="inner_bbox_dense_shrink_y" type="number" default="0.03">
+  Vertical inset for dense bounding boxes.
+</ParamField>
+
+## Example: full render block
+
+The following shows all render options in a complete job request body. Only the `render` object is shown; combine it with the required `workflow`, `source`, `ocr`, and `translation` fields described in the API reference.
+
+```json
+{
+  "render": {
+    "render_mode": "auto",
+    "compile_workers": 8,
+    "typst_font_family": "Source Han Serif SC",
+    "pdf_compress_dpi": 200,
+    "translated_pdf_name": "my-paper-zh.pdf",
+    "body_font_size_factor": 0.95,
+    "body_leading_factor": 1.08,
+    "inner_bbox_shrink_x": 0.035,
+    "inner_bbox_shrink_y": 0.04,
+    "inner_bbox_dense_shrink_x": 0.025,
+    "inner_bbox_dense_shrink_y": 0.03
+  }
+}
+```
+
+<Tip>
+  On machines with limited CPU or memory, set `compile_workers` to `1` or `2` to avoid saturating the host during the rendering phase. A single-threaded Typst compilation is still fast for most documents and will complete without competing with concurrent translation jobs.
+</Tip>

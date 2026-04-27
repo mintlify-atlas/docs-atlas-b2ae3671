@@ -1,0 +1,63 @@
+---
+title: "Translate your first PDF with the desktop app"
+description: "Download and install the RetainPDF desktop app on Windows, macOS, or Linux. Get a layout-preserved translation in minutes without any server setup."
+---
+
+The RetainPDF desktop app packages the full translation pipeline into a standalone application. You upload a PDF, configure your translation settings, and download the result — no terminal, no Docker, no server setup required. It is the fastest way to start using RetainPDF on a single machine.
+
+<Steps>
+  <Step title="Download the installer">
+    Go to the [RetainPDF GitHub Releases](https://github.com/wxyhgk/retain-pdf/releases) page and download the package for your operating system:
+
+    - **Windows** — download `Setup.exe`
+    - **macOS** — download the `.dmg` file
+    - **Linux** — download the `.deb` package
+  </Step>
+
+  <Step title="Install the app">
+    <Tabs>
+      <Tab title="Windows">
+        Run the downloaded `Setup.exe` file and follow the installation wizard. No additional configuration is needed after installation completes.
+      </Tab>
+      <Tab title="macOS">
+        Open the `.dmg` file and drag **RetainPDF.app** into your `/Applications` folder.
+
+        Because the app is currently unsigned (no Apple Developer account), macOS may show a warning that the app is "damaged" when you first open it. This is a Gatekeeper quarantine flag, not actual file corruption. Remove it with:
+
+        ```bash
+        sudo xattr -r -d com.apple.quarantine /Applications/RetainPDF.app
+        ```
+
+        Then open the app again normally.
+
+        <Warning>
+          The "damaged app" prompt on macOS is caused by the missing code signature, not a problem with the download. Running the command above clears the quarantine attribute and allows the app to launch.
+        </Warning>
+      </Tab>
+      <Tab title="Linux">
+        Install the `.deb` package with:
+
+        ```bash
+        sudo dpkg -i retainpdf_*.deb
+        ```
+
+        If you encounter missing dependency errors, resolve them with:
+
+        ```bash
+        sudo apt-get install -f
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Open RetainPDF">
+    Launch the app from your applications menu or desktop. On first launch you will be prompted to configure your API keys — at minimum a MinerU token (for OCR) and a model API key (for translation).
+  </Step>
+
+  <Step title="Upload a PDF and translate">
+    1. Click **Upload** and select your PDF file.
+    2. Choose the target language and translation mode.
+    3. Click **Translate** and wait for processing to complete.
+    4. Download the result as a PDF, Markdown file, or ZIP archive.
+  </Step>
+</Steps>

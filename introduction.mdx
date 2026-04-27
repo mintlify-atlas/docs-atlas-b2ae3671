@@ -1,0 +1,52 @@
+---
+title: "RetainPDF: PDF translation that keeps your layout"
+description: "RetainPDF translates PDFs while preserving layout, inline math, and tables — including scanned documents. Designed for scientific papers and technical docs."
+---
+
+RetainPDF translates PDFs while preserving the original layout — including scanned and image-based documents, inline formulas, tables, and figures. Unlike general-purpose translation tools that collapse formatting into plain text, RetainPDF reconstructs the translated document so it looks like the original, making results immediately usable without manual reformatting.
+
+## How RetainPDF compares
+
+Most open-source layout-preserving translation tools only work on selectable, text-layer PDFs and struggle with inline formulas. RetainPDF is built from the ground up to handle the harder cases: scanned documents, image-only PDFs, and complex mathematical content.
+
+| Feature | PDFMathTranslate | PolyglotPDF | Doc2X | RetainPDF |
+| --- | --- | --- | --- | --- |
+| Scanned / image PDFs | No | No | Yes | Yes |
+| Complex inline formulas | No | No | Yes | Yes |
+| Code blocks not mistranslated | No | No | No | Yes |
+| Table handling | Weak | Weak | Medium | Yes — toggleable |
+| Custom translation rules | Weak | Weak | Weak | Yes — rule profiles |
+| Layout preservation | Fair | Fair | Strong | Strong |
+| PDF size optimization | Fair | Fair | Weak | Yes — continuously improved |
+| API automation | Yes | Yes | No (closed) | Yes |
+
+## Key features
+
+- **Scanned PDF support** — processes image-based and scanned PDFs via OCR, not just selectable text
+- **Inline formula rendering** — correctly handles and preserves mathematical expressions inline with translated text
+- **Code-aware translation** — detects and skips code blocks to prevent mistranslation
+- **Flexible output** — produces translated PDF, Markdown, and ZIP archive
+- **Full API** — REST API for automation and integration into existing workflows
+- **Self-hostable** — deploy on your own infrastructure via Docker; no data leaves your environment
+- **Decoupled architecture** — OCR, translation, layout, and delivery are separate modules, making it straightforward to extend or replace individual components
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Desktop app" icon="desktop" href="/quickstart-desktop">
+    Download and run RetainPDF on Windows, macOS, or Linux in minutes.
+  </Card>
+  <Card title="Docker deployment" icon="docker" href="/quickstart-docker">
+    Self-host RetainPDF for your team or LAN using Docker Compose.
+  </Card>
+  <Card title="API overview" icon="code" href="/api/overview">
+    Integrate RetainPDF into your workflows using the REST API.
+  </Card>
+  <Card title="OCR providers" icon="scan" href="/guides/ocr-providers">
+    Configure OCR backends including MinerU and PaddleOCR.
+  </Card>
+</CardGroup>
+
+<Note>
+  Scanned PDF support and inline formula rendering are the two capabilities that most clearly separate RetainPDF from alternatives like PDFMathTranslate. If your documents include either, RetainPDF is designed specifically for those cases.
+</Note>

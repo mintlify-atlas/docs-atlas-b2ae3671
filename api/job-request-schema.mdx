@@ -1,0 +1,292 @@
+---
+title: "POST /api/v1/jobs: complete request body field reference"
+description: "Complete reference for all fields in the POST /api/v1/jobs request body, organized by source, ocr, translation, render, and runtime groups."
+---
+
+The job creation request body is organized into five groups: `source`, `ocr`, `translation`, `render`, and `runtime`. A top-level `workflow` field selects which pipeline stages run. This page documents every field with its type, default, and purpose.
+
+## Full canonical example
+
+The example below shows the complete request shape accepted by `POST /api/v1/jobs`.
+
+```json
+{
+  "workflow": "book",
+  "source": {
+    "upload_id": "20260327190000-ab12cd",
+    "source_url": "",
+    "artifact_job_id": ""
+  },
+  "ocr": {
+    "provider": "mineru",
+    "mineru_token": "mineru-xxxx",
+    "model_version": "vlm",
+    "is_ocr": false,
+    "disable_formula": false,
+    "disable_table": false,
+    "language": "ch",
+    "page_ranges": "",
+    "no_cache": false,
+    "poll_interval": 5,
+    "poll_timeout": 1800
+  },
+  "translation": {
+    "mode": "sci",
+    "math_mode": "direct_typst",
+    "skip_title_translation": false,
+    "classify_batch_size": 12,
+    "rule_profile_name": "general_sci",
+    "custom_rules_text": "",
+    "glossary_id": "",
+    "glossary_entries": [],
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-xxxx",
+    "start_page": 0,
+    "end_page": -1,
+    "batch_size": 1,
+    "workers": 0
+  },
+  "render": {
+    "render_mode": "auto",
+    "compile_workers": 0,
+    "typst_font_family": "Source Han Serif SC",
+    "pdf_compress_dpi": 200,
+    "translated_pdf_name": "",
+    "body_font_size_factor": 0.95,
+    "body_leading_factor": 1.08,
+    "inner_bbox_shrink_x": 0.035,
+    "inner_bbox_shrink_y": 0.04,
+    "inner_bbox_dense_shrink_x": 0.025,
+    "inner_bbox_dense_shrink_y": 0.03
+  },
+  "runtime": {
+    "job_id": "",
+    "timeout_seconds": 1800
+  }
+}
+```
+
+<Warning>
+  Legacy flat fields such as `upload_id`, `model`, and `api_key` at the top level are rejected by `POST /api/v1/jobs`. Always use the grouped request body shown above.
+</Warning>
+
+---
+
+## `workflow`
+
+The top-level workflow field selects which pipeline stages run for this job.
+
+<ParamField body="workflow" type="string" required>
+  Pipeline variant to execute. One of:
+
+  - `book` — Full pipeline: OCR → normalize → translate → render.
+  - `translate` — OCR → normalize → translate. No render step.
+  - `render` — Render only, reusing artifacts from a previous job. Use `source.artifact_job_id` instead of `source.upload_id`.
+</ParamField>
+
+---
+
+## `source` group
+
+The `source` object identifies the input document for this job.
+
+<ParamField body="source.upload_id" type="string">
+  Upload ID returned by `POST /api/v1/uploads`. Required for `workflow=book` and `workflow=translate`.
+</ParamField>
+
+<ParamField body="source.artifact_job_id" type="string">
+  Job ID whose existing translation artifacts should be reused. Used with `workflow=render` to skip OCR and translation and re-run the render stage only.
+</ParamField>
+
+<ParamField body="source.source_url" type="string">
+  Optional URL pointing to the source PDF. Alternative to `upload_id` when the file is hosted remotely.
+</ParamField>
+
+---
+
+## `ocr` group
+
+The `ocr` object controls how the PDF is processed by the OCR provider before translation.
+
+<ParamField body="ocr.provider" type="string" required>
+  OCR provider to use. One of `"mineru"` or `"paddle"`.
+</ParamField>
+
+<ParamField body="ocr.mineru_token" type="string">
+  MinerU API token. Required when `ocr.provider` is `"mineru"`. Must not be a URL-like string.
+</ParamField>
+
+<ParamField body="ocr.paddle_token" type="string">
+  PaddleOCR API token. Required when `ocr.provider` is `"paddle"`. Must not be a URL-like string.
+</ParamField>
+
+<ParamField body="ocr.model_version" type="string">
+  OCR model variant. Currently `"vlm"` is supported for MinerU (vision-language model mode).
+</ParamField>
+
+<ParamField body="ocr.is_ocr" type="boolean" default="false">
+  Force OCR mode even for PDFs that already contain a text layer. Useful for scanned documents embedded in a text-layer PDF.
+</ParamField>
+
+<ParamField body="ocr.disable_formula" type="boolean" default="false">
+  Skip formula detection during OCR. Speeds up processing when the document contains no mathematical content.
+</ParamField>
+
+<ParamField body="ocr.disable_table" type="boolean" default="false">
+  Skip table detection during OCR. Speeds up processing for documents without tabular data.
+</ParamField>
+
+<ParamField body="ocr.language" type="string">
+  Primary document language hint passed to the OCR provider. Use `"ch"` for Chinese documents.
+</ParamField>
+
+<ParamField body="ocr.page_ranges" type="string">
+  Page range filter passed to the OCR provider (e.g. `"1-5,8,10-12"`). Leave empty to process all pages.
+</ParamField>
+
+<ParamField body="ocr.no_cache" type="boolean" default="false">
+  Bypass the OCR provider's server-side cache and force a fresh OCR run.
+</ParamField>
+
+<ParamField body="ocr.poll_interval" type="number" default="5">
+  Seconds between status poll attempts while waiting for the MinerU provider to finish processing.
+</ParamField>
+
+<ParamField body="ocr.poll_timeout" type="number" default="1800">
+  Maximum seconds to wait for the OCR provider to return results before the job is marked failed.
+</ParamField>
+
+---
+
+## `translation` group
+
+The `translation` object controls the LLM-powered translation stage.
+
+<Note>
+  `translation.base_url`, `translation.api_key`, and `translation.model` are all required when the selected workflow includes a translation step. Credential values are never echoed back in responses; their presence is indicated by `*_configured` boolean fields.
+</Note>
+
+<ParamField body="translation.mode" type="string">
+  Translation style. One of `"sci"` (scientific/academic) or `"general"`.
+</ParamField>
+
+<ParamField body="translation.model" type="string">
+  LLM model name to use for translation (e.g. `"deepseek-v4-flash"`).
+</ParamField>
+
+<ParamField body="translation.base_url" type="string">
+  Base URL for the LLM API (e.g. `"https://api.deepseek.com/v1"`). Must start with `http://` or `https://`.
+</ParamField>
+
+<ParamField body="translation.api_key" type="string">
+  API key for the LLM provider. Must not be a URL-like string.
+</ParamField>
+
+<ParamField body="translation.math_mode" type="string" default="direct_typst">
+  How mathematical expressions are handled. `"direct_typst"` asks the model to produce translated prose with inline `$...$` math directly. This is an experimental mode.
+</ParamField>
+
+<ParamField body="translation.skip_title_translation" type="boolean" default="false">
+  When `true`, the document title is kept in the original language rather than being translated.
+</ParamField>
+
+<ParamField body="translation.batch_size" type="number" default="1">
+  Number of text blocks sent to the LLM in a single translation request.
+</ParamField>
+
+<ParamField body="translation.workers" type="number" default="0">
+  Number of concurrent translation workers. `0` lets the backend choose automatically based on available resources.
+</ParamField>
+
+<ParamField body="translation.classify_batch_size" type="number" default="12">
+  Number of blocks processed in each classification batch during domain inference.
+</ParamField>
+
+<ParamField body="translation.rule_profile_name" type="string" default="general_sci">
+  Named rule profile that controls translation policies (e.g. which block types to translate). Use `"general_sci"` for scientific documents.
+</ParamField>
+
+<ParamField body="translation.custom_rules_text" type="string">
+  Freeform rule text appended to the selected rule profile. Allows per-job policy overrides without creating a new named profile.
+</ParamField>
+
+<ParamField body="translation.glossary_id" type="string">
+  ID of a named glossary resource created via `POST /api/v1/glossaries`. When provided, the backend loads the glossary's term pairs as translation guidance.
+</ParamField>
+
+<ParamField body="translation.glossary_entries" type="object[]">
+  Inline glossary entries provided directly in the request. Each entry is an object with `source`, `target`, and `note` fields. If both `glossary_id` and `glossary_entries` are provided, inline entries overlay the named glossary and override any entry with the same `source`.
+</ParamField>
+
+<ParamField body="translation.start_page" type="number" default="0">
+  Zero-indexed first page to translate. Pages before this index pass through untranslated.
+</ParamField>
+
+<ParamField body="translation.end_page" type="number" default="-1">
+  Zero-indexed last page to translate, inclusive. `-1` means translate through the final page.
+</ParamField>
+
+---
+
+## `render` group
+
+The `render` object controls how the translated document is typeset and compiled to PDF.
+
+<ParamField body="render.render_mode" type="string" default="auto">
+  Rendering strategy. `"auto"` lets the backend choose the best approach for the document layout.
+</ParamField>
+
+<ParamField body="render.compile_workers" type="number" default="0">
+  Number of parallel Typst compilation workers. `0` lets the backend choose automatically.
+</ParamField>
+
+<ParamField body="render.typst_font_family" type="string" default="Source Han Serif SC">
+  Font family used for body text in the rendered PDF. Must be a font available in the server's Typst environment.
+</ParamField>
+
+<ParamField body="render.pdf_compress_dpi" type="number" default="200">
+  DPI used when compressing embedded images in the output PDF. Lower values reduce file size; higher values preserve image quality.
+</ParamField>
+
+<ParamField body="render.translated_pdf_name" type="string">
+  Custom filename for the output PDF. When empty, the backend derives a name from the source file.
+</ParamField>
+
+<ParamField body="render.body_font_size_factor" type="number" default="0.95">
+  Multiplier applied to the detected body font size. Values below `1.0` shrink text slightly to reduce line overflow in translated blocks.
+</ParamField>
+
+<ParamField body="render.body_leading_factor" type="number" default="1.08">
+  Multiplier applied to the detected line height. Adjusts vertical spacing between lines.
+</ParamField>
+
+<ParamField body="render.inner_bbox_shrink_x" type="number" default="0.035">
+  Horizontal shrink factor applied to text bounding boxes in normal density mode. Prevents translated text from overflowing block boundaries.
+</ParamField>
+
+<ParamField body="render.inner_bbox_shrink_y" type="number" default="0.04">
+  Vertical shrink factor applied to text bounding boxes in normal density mode.
+</ParamField>
+
+<ParamField body="render.inner_bbox_dense_shrink_x" type="number" default="0.025">
+  Horizontal shrink factor for bounding boxes in dense layout mode, where text blocks are closely packed.
+</ParamField>
+
+<ParamField body="render.inner_bbox_dense_shrink_y" type="number" default="0.03">
+  Vertical shrink factor for bounding boxes in dense layout mode.
+</ParamField>
+
+---
+
+## `runtime` group
+
+The `runtime` object controls job execution behavior and identity.
+
+<ParamField body="runtime.timeout_seconds" type="number" default="1800">
+  Maximum wall-clock seconds the job may run before the backend marks it failed. Increase this for large documents or slow LLM providers.
+</ParamField>
+
+<ParamField body="runtime.job_id" type="string">
+  Optional custom job ID. When empty, the backend generates one automatically. Custom IDs must be unique; submitting a duplicate ID returns an error.
+</ParamField>

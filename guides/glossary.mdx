@@ -1,0 +1,158 @@
+---
+title: "Using glossaries to control translation terms"
+description: "Guide RetainPDF's LLM using named glossaries or inline term pairs. Covers CRUD endpoints, CSV import, inline override rules, and per-job glossary_summary stats."
+---
+
+Glossaries let you specify source→target term mappings that guide the LLM during translation. When a glossary is active, the pipeline injects your term pairs into the translation prompt so the model uses your preferred terminology instead of its own inference. This is especially useful for domain-specific vocabulary — materials science terms, product names, brand-specific phrasing — where default LLM outputs may be inconsistent or incorrect.
+
+## Two ways to supply a glossary
+
+<CardGroup cols={2}>
+  <Card title="Named glossary" icon="database">
+    Create a reusable glossary resource once, then reference it by `glossary_id` across multiple jobs. Best for shared terminology sets used by a team or across many documents.
+  </Card>
+  <Card title="Inline entries" icon="list">
+    Pass glossary entries directly in the job request as a `glossary_entries` array. Best for small, one-off overrides or when you want to test a few terms without creating a persistent resource.
+  </Card>
+</CardGroup>
+
+When both are provided in the same job request, the backend loads the named glossary first and then overlays the inline entries. If an inline entry has the same `source` as a named glossary entry, the inline entry takes precedence.
+
+## Creating a named glossary
+
+Send a `POST` request to `/api/v1/glossaries` with a name and an array of term entries:
+
+```bash
+curl -X POST http://127.0.0.1:41000/api/v1/glossaries \
+  -H "X-API-Key: your-rust-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "semiconductor",
+    "entries": [
+      {"source": "band gap", "target": "带隙", "note": "materials"},
+      {"source": "density of states", "target": "态密度", "note": ""},
+      {"source": "heterojunction", "target": "异质结", "note": ""}
+    ]
+  }'
+```
+
+The response includes the assigned `glossary_id`:
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "glossary_id": "glossary-20260411-abc123",
+    "name": "semiconductor",
+    "entry_count": 3,
+    "created_at": "2026-04-11T07:00:00Z",
+    "updated_at": "2026-04-11T07:00:00Z"
+  }
+}
+```
+
+### Managing glossaries
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/v1/glossaries` | List all glossaries |
+| `GET /api/v1/glossaries/{glossary_id}` | Fetch a single glossary with all entries |
+| `PUT /api/v1/glossaries/{glossary_id}` | Replace name and entries |
+| `DELETE /api/v1/glossaries/{glossary_id}` | Delete a glossary |
+
+### Importing from CSV
+
+If your term list is in CSV format, use the parse helper to convert it before creating a glossary:
+
+```bash
+curl -X POST http://127.0.0.1:41000/api/v1/glossaries/parse-csv \
+  -H "X-API-Key: your-rust-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "csv_text": "source,target,note\nband gap,带隙,materials\ndensity of states,态密度,\n"
+  }'
+```
+
+The response returns normalized `entries` and `entry_count` ready to pass to `POST /api/v1/glossaries`. The helper accepts plain CSV text only — convert Excel files to CSV in your client before calling this endpoint.
+
+## Using a glossary in a job request
+
+### Named glossary
+
+```json
+{
+  "translation": {
+    "mode": "sci",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-xxxx",
+    "glossary_id": "glossary-20260411-abc123"
+  }
+}
+```
+
+### Inline entries
+
+```json
+{
+  "translation": {
+    "mode": "sci",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-xxxx",
+    "glossary_entries": [
+      {"source": "band gap", "target": "带隙", "note": "materials"},
+      {"source": "fermi level", "target": "费米能级", "note": ""}
+    ]
+  }
+}
+```
+
+### Named glossary with inline overrides
+
+```json
+{
+  "translation": {
+    "glossary_id": "glossary-20260411-abc123",
+    "glossary_entries": [
+      {"source": "band gap", "target": "禁带宽度", "note": "override for this document"}
+    ]
+  }
+}
+```
+
+In this example the named glossary provides all its entries, but the inline entry overrides the `"band gap"` translation for this job only.
+
+## Checking glossary usage after a job
+
+When a glossary is active, the job detail response includes a `glossary_summary` object populated from the translation manifest:
+
+```json
+{
+  "glossary_summary": {
+    "enabled": true,
+    "glossary_id": "glossary-20260411-abc123",
+    "glossary_name": "semiconductor",
+    "entry_count": 12,
+    "resource_entry_count": 10,
+    "inline_entry_count": 3,
+    "overridden_entry_count": 1,
+    "source_hit_entry_count": 7,
+    "target_hit_entry_count": 6,
+    "unused_entry_count": 5,
+    "unapplied_source_hit_entry_count": 1
+  }
+}
+```
+
+| Field | Description |
+|---|---|
+| `enabled` | Whether a glossary was active for this job |
+| `entry_count` | Total entries after merging named + inline entries |
+| `source_hit_entry_count` | Entries whose source term appeared in the document |
+| `unused_entry_count` | Entries that were loaded but never matched any block |
+
+<Note>
+  Glossary support in v1 is **guidance-only**. The glossary entries are injected into the LLM prompt to steer term choice, but the pipeline does not run a post-translation find-and-replace pass to enforce exact matches. In practice the model respects glossary terms reliably for common patterns, but critical terminology should be verified in the output.
+</Note>

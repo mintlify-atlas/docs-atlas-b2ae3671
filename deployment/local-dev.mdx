@@ -1,0 +1,90 @@
+---
+title: "Run RetainPDF backend and frontend locally for dev"
+description: "How to start the Rust API backend and static frontend locally for development and testing without Docker, including environment variable reference."
+---
+
+For development or testing without Docker, you can run the Rust API and frontend separately. This gives you faster iteration cycles — you can recompile the backend or modify frontend files without rebuilding container images.
+
+<Warning>
+Local development mode is **not recommended for team or production use**. It lacks the process supervision, health checks, and volume isolation provided by the Docker Compose setup. Use [Docker Compose](/deployment/docker) for any shared or long-running deployment.
+</Warning>
+
+## Prerequisites
+
+Before starting, make sure the following are installed and available on your `PATH`:
+
+- **Rust toolchain** — install via [rustup](https://rustup.rs/)
+- **Python 3.11** — required by the backend translation scripts
+- **Typst binary** — used for PDF layout and rendering
+
+## Start the Rust API backend
+
+<Steps>
+  <Step title="Navigate to the Rust API directory">
+    ```bash
+    cd backend/rust_api
+    ```
+  </Step>
+
+  <Step title="Set required environment variables and start the server">
+    ```bash
+    RUST_API_BIND_HOST=0.0.0.0 \
+    DATA_ROOT=/path/to/data \
+    RUST_API_SCRIPTS_DIR=/path/to/backend/scripts \
+    cargo run
+    ```
+
+    Replace `/path/to/data` with an absolute path to a directory where the API can store uploaded files and job data. Replace `/path/to/backend/scripts` with the absolute path to the `backend/scripts` directory in your checkout.
+  </Step>
+</Steps>
+
+## Start the frontend
+
+The frontend is a set of static files served by any HTTP server. Python's built-in server works for local testing:
+
+```bash
+cd frontend
+python3 -m http.server 8080 --bind 0.0.0.0
+```
+
+Open `http://127.0.0.1:8080` in your browser. The frontend will proxy API requests to the backend.
+
+## Environment variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `RUST_API_BIND_HOST` | Yes | `127.0.0.1` | Interface the API listens on. Set to `0.0.0.0` to accept connections from other machines. |
+| `DATA_ROOT` | Yes | — | Absolute path to the data directory for uploads and job state. |
+| `RUST_API_SCRIPTS_DIR` | Yes | — | Absolute path to the `backend/scripts` directory. |
+| `RUST_API_PORT` | No | `41000` | Port for the full async REST API. |
+| `RUST_API_SIMPLE_PORT` | No | `42000` | Port for the blocking sync translate endpoint. |
+
+## Auth setup
+
+All API endpoints except `GET /health` require an `X-API-Key` header. For local development, create an auth file at `backend/rust_api/auth.local.json`:
+
+```json
+{
+  "api_keys": ["your-local-dev-key"],
+  "max_running_jobs": 2,
+  "simple_port": 42000
+}
+```
+
+Alternatively, set the `RUST_API_KEYS` environment variable to a comma-separated list of keys:
+
+```bash
+RUST_API_KEYS=your-local-dev-key cargo run
+```
+
+See [API key configuration](/configuration/auth) for the full auth reference.
+
+## Health check
+
+Once the backend is running, verify it is accepting requests:
+
+```bash
+curl http://127.0.0.1:41000/health
+```
+
+A `200 OK` response confirms the server is up and ready.

@@ -1,0 +1,61 @@
+---
+title: "Update RetainPDF to the latest Docker image"
+description: "How to pull the latest RetainPDF Docker images and restart services, including pinning to a specific image version for controlled rollouts."
+---
+
+Updating RetainPDF is done by pulling new Docker images and restarting the containers — no data migration or schema changes are required. The process takes less than a minute on a typical connection.
+
+## Update to the latest images
+
+Run these commands from your `docker/delivery` directory:
+
+```bash
+cd retain-pdf/docker/delivery
+docker compose pull
+docker compose up -d
+```
+
+`docker compose pull` fetches the newest `wxyhgk/retainpdf-app` and `wxyhgk/retainpdf-web` images from Docker Hub. `docker compose up -d` recreates any containers whose image has changed while leaving containers that are already up to date untouched.
+
+<Tip>
+Before pulling, check `docker compose ps` to see if any translation jobs are currently running. Pulling does not interrupt running containers, but `docker compose up -d` will restart containers that received a new image. Submit or cancel in-progress jobs before running the restart step if you want to avoid interrupting active work.
+</Tip>
+
+## Pin to a specific image version
+
+If you need to roll forward or back to an exact image tag, pass the image references as environment variables:
+
+```bash
+APP_IMAGE=wxyhgk/retainpdf-app:latest \
+WEB_IMAGE=wxyhgk/retainpdf-web:latest \
+docker compose up -d
+```
+
+Replace `:latest` with any tag published to Docker Hub, for example `:v1.2.0`.
+
+## Post-update health check
+
+After the containers restart, confirm both services are healthy:
+
+```bash
+docker compose ps
+```
+
+Both `app` and `web` should show a `healthy` status. You can also hit the API endpoint directly:
+
+```bash
+curl http://127.0.0.1:41000/health
+```
+
+## Data persistence
+
+<Note>
+All job data, uploaded files, and the internal database are stored in the `app_data` Docker named volume. This volume is **not removed** by `docker compose pull` or `docker compose up -d` — your data is preserved across every update.
+</Note>
+
+The named volume `retainpdf_app_data` maps to the `DATA_ROOT` path inside the container. If you ever need to inspect or back up this data, use `docker volume inspect retainpdf_app_data` to find its location on the host.
+
+## Docker Hub image links
+
+- [`wxyhgk/retainpdf-app`](https://hub.docker.com/r/wxyhgk/retainpdf-app) — Rust API backend
+- [`wxyhgk/retainpdf-web`](https://hub.docker.com/r/wxyhgk/retainpdf-web) — Web frontend

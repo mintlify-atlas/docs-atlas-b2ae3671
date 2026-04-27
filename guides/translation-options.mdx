@@ -1,0 +1,147 @@
+---
+title: "Configure translation modes and LLM settings"
+description: "Configure RetainPDF translation: mode, LLM model and API key, math_mode, batch size, workers, rule profiles, and page range — all options with examples."
+---
+
+RetainPDF's translation stage accepts rich configuration to control quality and behavior. Every option lives inside the `translation` object of the job request body. You can tune the translation mode for your document type, point the pipeline at any OpenAI-compatible LLM endpoint, control concurrency for large documents, and supply custom terminology rules or a glossary.
+
+## Translation modes
+
+<CardGroup cols={2}>
+  <Card title="sci" icon="flask">
+    Optimised for academic and scientific papers. Applies policies for handling citations, abstract structures, section headings, figure captions, and inline math. This is the recommended mode for journal articles and technical reports.
+  </Card>
+  <Card title="general" icon="book-open">
+    General-purpose mode for books, manuals, and non-scientific documents. Less aggressive formula and citation handling; suitable when the document does not follow a scientific paper structure.
+  </Card>
+</CardGroup>
+
+Set the mode with `translation.mode`:
+
+```json
+{
+  "translation": {
+    "mode": "sci"
+  }
+}
+```
+
+## LLM connection fields
+
+RetainPDF calls any OpenAI-compatible chat API. Supply the following three fields:
+
+| Field | Description |
+|---|---|
+| `model` | Model identifier as accepted by the target API, e.g. `"deepseek-v4-flash"` |
+| `base_url` | Base URL of the API endpoint. Must start with `http://` or `https://`. |
+| `api_key` | API key for the LLM provider. Never echoed back in responses. |
+
+```json
+{
+  "translation": {
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-xxxx"
+  }
+}
+```
+
+## Math mode
+
+`translation.math_mode` controls how inline formulas are handled during translation.
+
+The only currently supported value is `"direct_typst"`, which is also the default. In this mode the pipeline instructs the LLM to output translated prose with inline `$...$` Typst math expressions preserved in place. This is an experimental but effective approach that keeps formulas intact without a separate extraction pass.
+
+```json
+{
+  "translation": {
+    "math_mode": "direct_typst"
+  }
+}
+```
+
+## Title translation
+
+Set `skip_title_translation` to control whether the document title is translated:
+
+| Value | Behavior |
+|---|---|
+| `false` (default) | Translate the document title along with the body |
+| `true` | Keep the original title text; useful when a translated title would look incorrect or when the title is already in the target language |
+
+## Concurrency controls
+
+`batch_size` and `workers` together determine how many translation requests run in parallel.
+
+| Field | Description |
+|---|---|
+| `batch_size` | Number of document blocks sent to the LLM in a single request. Default `1`. |
+| `workers` | Number of concurrent translation workers. Default `0` (uses the server default). |
+| `classify_batch_size` | Number of blocks sent per classification request (used to decide which blocks to translate). Default `12`. |
+
+<Tip>
+  For large documents, set `workers: 100` to maximise throughput. RetainPDF's pipeline is designed to run many small LLM calls concurrently, so a high worker count dramatically reduces wall-clock translation time as long as your LLM endpoint supports it.
+</Tip>
+
+## Rule profiles and custom rules
+
+`rule_profile_name` selects a built-in rule profile that guides translation behaviour. The `"general_sci"` profile applies policies common to scientific papers: it instructs the model to avoid translating code identifiers, to preserve citation markers, and to handle continuation blocks consistently.
+
+`custom_rules_text` accepts free-form text rules appended to the system prompt. Use this field to add project-specific terminology guidance, tone instructions, or domain conventions that the built-in profile does not cover.
+
+```json
+{
+  "translation": {
+    "rule_profile_name": "general_sci",
+    "custom_rules_text": "Always translate 'heterojunction' as '异质结'. Do not translate chemical formulae."
+  }
+}
+```
+
+## Page range
+
+Use `start_page` and `end_page` to restrict translation to a subset of the document. Both fields use zero-based page indices.
+
+| Field | Default | Description |
+|---|---|---|
+| `start_page` | `0` | First page to translate (inclusive, zero-based) |
+| `end_page` | `-1` | Last page to translate (inclusive). `-1` means translate to the end of the document. |
+
+## Full translation block example
+
+```json
+{
+  "workflow": "book",
+  "source": {
+    "upload_id": "20260402073151-a80618"
+  },
+  "ocr": {
+    "provider": "mineru",
+    "mineru_token": "mineru-xxxx",
+    "model_version": "vlm",
+    "language": "ch"
+  },
+  "translation": {
+    "mode": "sci",
+    "math_mode": "direct_typst",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-xxxx",
+    "skip_title_translation": false,
+    "batch_size": 1,
+    "workers": 100,
+    "classify_batch_size": 12,
+    "rule_profile_name": "general_sci",
+    "custom_rules_text": "",
+    "start_page": 0,
+    "end_page": -1
+  },
+  "render": {
+    "render_mode": "auto",
+    "compile_workers": 8
+  },
+  "runtime": {
+    "timeout_seconds": 1800
+  }
+}
+```

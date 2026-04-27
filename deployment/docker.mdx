@@ -1,0 +1,100 @@
+---
+title: "Deploy and self-host RetainPDF with Docker Compose"
+description: "Step-by-step guide to deploying RetainPDF as a self-hosted service using Docker Compose, with system requirements and configuration."
+---
+
+Docker is the recommended way to run RetainPDF for teams or multi-device use. The official images bundle the Rust API backend and the web frontend, so a single `docker compose up` command is all that's needed to get a fully functional translation service running on your own infrastructure.
+
+## System requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| OS        | Linux (Ubuntu 22.04 / 24.04) | Ubuntu 24.04 LTS |
+| Architecture | x86\_64 / amd64 | x86\_64 / amd64 |
+| CPU       | 4 cores | 8+ cores (for multi-user) |
+| RAM       | 8 GB | 16 GB |
+| Disk      | 10 GB free | 20 GB+ free |
+| Network   | Docker Hub, MinerU API, LLM provider API | — |
+
+RetainPDF is CPU and memory intensive. It does not require a discrete GPU.
+
+<Warning>
+The current Docker images are built for **x86\_64 / amd64** only. ARM-based machines — including Apple M-series Macs, Raspberry Pi, and ARM cloud instances — are not supported unless you have an x86 emulation layer available.
+</Warning>
+
+## Deploy with Docker Compose
+
+<Steps>
+  <Step title="Install Docker and Docker Compose">
+    Follow the [official Docker installation guide](https://docs.docker.com/engine/install/) for your Linux distribution. After installation, confirm both tools are available:
+
+    ```bash
+    docker --version
+    docker compose version
+    ```
+  </Step>
+
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/wxyhgk/retain-pdf.git
+    ```
+  </Step>
+
+  <Step title="Navigate to the delivery directory">
+    The `docker/delivery` directory contains the `docker-compose.yml` and all default configuration files.
+
+    ```bash
+    cd retain-pdf/docker/delivery
+    ```
+  </Step>
+
+  <Step title="Start the services">
+    ```bash
+    docker compose up -d
+    ```
+
+    Docker Compose will pull the latest `wxyhgk/retainpdf-app` and `wxyhgk/retainpdf-web` images and start both containers. The `web` service waits for the `app` service to pass its health check before starting.
+  </Step>
+
+  <Step title="Verify the deployment">
+    Open the web UI in your browser:
+
+    ```
+    http://127.0.0.1:40001
+    ```
+
+    You can also hit the API health endpoint directly:
+
+    ```bash
+    curl http://127.0.0.1:41000/health
+    ```
+  </Step>
+</Steps>
+
+## Exposed ports
+
+By default only port `40001` is mapped to your host. The other two ports are available inside the Docker network and can be optionally exposed by setting environment variables before running `docker compose up`.
+
+| Port  | Service           | Description                        |
+|-------|-------------------|------------------------------------|
+| 40001 | Web UI (`web`)    | Browser interface, default entry point |
+| 41000 | Rust API (`app`)  | Full async REST API                |
+| 42000 | Sync interface    | Blocking translate-and-download endpoint |
+
+The frontend proxies requests to the backend over the internal Docker network, so most users only need port `40001`.
+
+## Configuration files
+
+All runtime configuration lives under `docker/delivery/docker/`:
+
+| File | Purpose |
+|------|---------|
+| `docker/auth.local.json` | API key allowlist and job concurrency limits |
+| `docker/app.env` | Backend paths, ports, upload limits, font settings |
+| `docker/web.env` | Frontend defaults: API key, model, MinerU token |
+
+<Note>
+The `docker/auth.local.json` file is mounted into the container read-only. The `FRONT_X_API_KEY` value in `docker/web.env` must match one of the keys listed in `auth.local.json`.
+</Note>
+
+For a full description of every variable, see [Docker environment variables](/configuration/docker-env) and [API key configuration](/configuration/auth).

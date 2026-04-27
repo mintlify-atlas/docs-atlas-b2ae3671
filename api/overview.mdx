@@ -1,0 +1,103 @@
+---
+title: "RetainPDF REST API: base paths, envelope, and job model"
+description: "RetainPDF REST API runs on port 41000 under /api/v1. Covers JSON response envelope, error codes, async job model, and the four-step translation workflow."
+---
+
+RetainPDF exposes a REST API for programmatic PDF translation. The primary service runs on port **41000** (the Rust API) and accepts requests under the `/api/v1` base path. All responses except raw file downloads are JSON, wrapped in a unified envelope described below.
+
+## Service ports
+
+| Port  | Service                         |
+|-------|---------------------------------|
+| 41000 | Rust API — primary REST service |
+| 42000 | Synchronous helper interface    |
+| 40001 | Frontend static files (Docker)  |
+
+## Base URL and health check
+
+```http
+Base path:    /api/v1
+Health check: GET /health
+```
+
+`GET /health` returns a 200 response and requires no authentication. Every other endpoint requires an `X-API-Key` header.
+
+## Unified JSON envelope
+
+Every business response is wrapped in a consistent envelope, whether it reports success or an error.
+
+**Success**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {}
+}
+```
+
+**Error**
+
+```json
+{
+  "code": 40004,
+  "message": "job not found: 20260327190500-ef3456"
+}
+```
+
+<ResponseField name="code" type="integer" required>
+  `0` means success. Any non-zero value indicates a business or server error.
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Short, frontend-display-safe text describing the result or error.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The response payload. Omitted when no payload is needed (e.g., certain error responses).
+</ResponseField>
+
+### Error code ranges
+
+| Range   | Category         |
+|---------|------------------|
+| `400xx` | Request errors   |
+| `404xx` | Not found        |
+| `409xx` | State conflict   |
+| `500xx` | Internal errors  |
+
+## Async job model
+
+Translation jobs are **asynchronous**. A job is created and enters a queue; the API returns immediately with a `job_id`. Your integration then polls the job endpoint until the job reaches a terminal state (`succeeded`, `failed`, or `canceled`), and downloads the result.
+
+```
+Upload PDF → Create Job → Poll Status → Download Result
+```
+
+<Note>
+  Jobs are queued first and start automatically when a concurrency slot opens. The number of simultaneously running jobs is controlled by the `RUST_API_MAX_RUNNING_JOBS` environment variable (default: 4).
+</Note>
+
+### Typical workflow
+
+1. **Upload** your PDF via `POST /api/v1/uploads`. Receive an `upload_id`.
+2. **Create a job** via `POST /api/v1/jobs`, referencing the `upload_id`. Receive a `job_id`.
+3. **Poll status** via `GET /api/v1/jobs/{job_id}`. Watch `status` and `stage` fields.
+4. **Download** the translated PDF via `GET /api/v1/jobs/{job_id}/pdf`, or a full bundle via `/download`.
+
+## Explore the API
+
+<CardGroup cols={2}>
+  <Card title="Authentication" href="/api/authentication">
+    How to obtain your API key and pass it correctly in requests.
+  </Card>
+  <Card title="Jobs" href="/api/jobs">
+    Create, list, poll, and cancel translation jobs.
+  </Card>
+  <Card title="Uploads" href="/api/uploads">
+    Upload PDF files before creating a job.
+  </Card>
+  <Card title="Job status and stages" href="/api/status-model">
+    Understand all status values, pipeline stages, and progress fields.
+  </Card>
+</CardGroup>

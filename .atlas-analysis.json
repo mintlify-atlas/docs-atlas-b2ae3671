@@ -1,0 +1,123 @@
+{
+  "projectType": "saas",
+  "projectName": "RetainPDF",
+  "projectDescription": "A layout-preserving PDF translation service that handles scanned PDFs, complex inline formulas, and scientific documents, delivering translated PDF, Markdown, and ZIP outputs via web UI, desktop app, and REST API.",
+  "theme": "luma",
+  "primaryColor": "#040404",
+  "lightColor": "#244455",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart-desktop",
+              "quickstart-docker"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/ocr-providers",
+              "guides/translation-options",
+              "guides/glossary",
+              "guides/output-formats"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/docker-env",
+              "configuration/auth",
+              "configuration/render-options"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/updating",
+              "deployment/local-dev"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication",
+              "api/status-model"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/uploads",
+              "api/jobs",
+              "api/artifacts",
+              "api/glossaries",
+              "api/translation-diagnostics",
+              "api/ocr-providers"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "api/job-request-schema",
+              "api/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Layout-preserving PDF translation for scanned/image-based PDFs",
+    "Complex inline math formula rendering via Typst",
+    "Multiple OCR providers: MinerU and PaddleOCR",
+    "Full pipeline: OCR → Normalize → Translate → Render",
+    "Custom translation rules, glossaries, and profiles",
+    "Output formats: translated PDF, Markdown, and ZIP bundle",
+    "Web UI, desktop app (Windows/macOS/Linux), and REST API",
+    "Docker deployment for team/LAN use",
+    "Configurable render options (font, DPI, page ranges)",
+    "Translation diagnostics with per-item replay support"
+  ],
+  "publicApiSurface": [
+    "POST /api/v1/uploads",
+    "POST /api/v1/jobs",
+    "GET /api/v1/jobs/{job_id}",
+    "GET /api/v1/jobs",
+    "GET /api/v1/jobs/{job_id}/events",
+    "POST /api/v1/jobs/{job_id}/cancel",
+    "GET /api/v1/jobs/{job_id}/pdf",
+    "GET /api/v1/jobs/{job_id}/markdown",
+    "GET /api/v1/jobs/{job_id}/download",
+    "GET /api/v1/jobs/{job_id}/artifacts",
+    "GET /api/v1/jobs/{job_id}/normalized-document",
+    "GET /api/v1/jobs/{job_id}/normalization-report",
+    "GET /api/v1/jobs/{job_id}/translation/diagnostics",
+    "GET /api/v1/jobs/{job_id}/translation/items",
+    "GET /api/v1/jobs/{job_id}/translation/items/{item_id}",
+    "POST /api/v1/jobs/{job_id}/translation/items/{item_id}/replay",
+    "POST /api/v1/ocr/jobs",
+    "POST /api/v1/providers/mineru/validate-token",
+    "POST /api/v1/providers/paddle/validate-token",
+    "POST /api/v1/glossaries",
+    "GET /api/v1/glossaries",
+    "GET /api/v1/glossaries/{glossary_id}",
+    "PUT /api/v1/glossaries/{glossary_id}",
+    "DELETE /api/v1/glossaries/{glossary_id}",
+    "POST /api/v1/glossaries/parse-csv",
+    "POST /api/v1/translate/bundle",
+    "GET /health"
+  ]
+}

@@ -1,0 +1,415 @@
+---
+title: "Translation jobs: create, poll, cancel, and download"
+description: "Create book, translate, and render jobs via POST /api/v1/jobs. Covers list, detail, cancel, events, and download endpoints with request and response examples."
+---
+
+Translation jobs are the core resource of the RetainPDF API. A job represents a full translation pipeline run from OCR through rendering. You create a job by posting a structured request body that specifies the workflow, OCR provider credentials, translation model settings, and render options. The API responds immediately with a `job_id`; the actual processing runs asynchronously.
+
+<Note>
+  OCR-only jobs use a separate endpoint: `POST /api/v1/ocr/jobs`. The endpoints documented here cover `book`, `translate`, and `render` workflows only.
+</Note>
+
+## POST /api/v1/jobs — create a job
+
+```http
+POST /api/v1/jobs
+```
+
+### Workflows
+
+<ParamField body="workflow" type="string" required>
+  Controls which pipeline stages run. One of:
+
+  - `book` — full pipeline: OCR → Normalize → Translate → Render
+  - `translate` — OCR → Normalize → Translate; no render step
+  - `render` — re-render using existing artifacts from a previous job; set `source.artifact_job_id` instead of `source.upload_id`
+</ParamField>
+
+### Request body
+
+The request body is grouped JSON. Legacy flat fields such as `upload_id`, `model`, and `api_key` at the top level are rejected.
+
+<ParamField body="source" type="object" required>
+  Source document reference.
+
+  <Expandable title="source fields">
+    <ParamField body="source.upload_id" type="string">
+      ID returned by `POST /api/v1/uploads`. Required for `book` and `translate` workflows.
+    </ParamField>
+    <ParamField body="source.artifact_job_id" type="string">
+      Job ID of a previously completed job. Required for `render` workflow.
+    </ParamField>
+    <ParamField body="source.source_url" type="string">
+      Optional URL to a remote PDF source.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="ocr" type="object">
+  OCR provider settings.
+
+  <Expandable title="ocr fields">
+    <ParamField body="ocr.provider" type="string">
+      OCR provider. `mineru` or `paddle`.
+    </ParamField>
+    <ParamField body="ocr.mineru_token" type="string">
+      MinerU API token. Required when `ocr.provider` is `mineru`. Must not be a URL-like string.
+    </ParamField>
+    <ParamField body="ocr.paddle_token" type="string">
+      PaddleOCR API token. Required when `ocr.provider` is `paddle`.
+    </ParamField>
+    <ParamField body="ocr.model_version" type="string">
+      OCR model version (e.g., `vlm`).
+    </ParamField>
+    <ParamField body="ocr.language" type="string">
+      Source document language code (e.g., `ch`, `en`).
+    </ParamField>
+    <ParamField body="ocr.page_ranges" type="string">
+      Optional page range string to limit OCR scope.
+    </ParamField>
+    <ParamField body="ocr.is_ocr" type="boolean" default="false">
+      Force OCR mode even when the PDF has embedded text.
+    </ParamField>
+    <ParamField body="ocr.disable_formula" type="boolean" default="false">
+      Disable formula detection.
+    </ParamField>
+    <ParamField body="ocr.disable_table" type="boolean" default="false">
+      Disable table detection.
+    </ParamField>
+    <ParamField body="ocr.poll_interval" type="number" default="5">
+      Seconds between polling the OCR provider for status.
+    </ParamField>
+    <ParamField body="ocr.poll_timeout" type="number" default="1800">
+      Maximum seconds to wait for the OCR provider to return results.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="translation" type="object">
+  Translation model settings. Required for `book` and `translate` workflows.
+
+  <Expandable title="translation fields">
+    <ParamField body="translation.model" type="string">
+      LLM model identifier (e.g., `deepseek-v4-flash`).
+    </ParamField>
+    <ParamField body="translation.base_url" type="string">
+      LLM API base URL. Must start with `http://` or `https://`.
+    </ParamField>
+    <ParamField body="translation.api_key" type="string">
+      LLM API key. Must not be a URL-like string. Never echoed back in responses.
+    </ParamField>
+    <ParamField body="translation.mode" type="string" default="sci">
+      Translation mode (e.g., `sci` for scientific documents).
+    </ParamField>
+    <ParamField body="translation.math_mode" type="string" default="direct_typst">
+      Math handling mode. `direct_typst` asks the model to emit inline `$...$` Typst math directly.
+    </ParamField>
+    <ParamField body="translation.glossary_id" type="string">
+      ID of a named glossary resource to guide translation.
+    </ParamField>
+    <ParamField body="translation.glossary_entries" type="array">
+      Inline glossary entries. Each item: `{"source": "...", "target": "...", "note": "..."}`. If both `glossary_id` and `glossary_entries` are provided, inline entries overlay resource entries with the same `source`.
+    </ParamField>
+    <ParamField body="translation.skip_title_translation" type="boolean" default="false">
+      When `true`, the document title is kept in the original language.
+    </ParamField>
+    <ParamField body="translation.batch_size" type="number" default="1">
+      Number of text blocks per translation batch.
+    </ParamField>
+    <ParamField body="translation.workers" type="number" default="0">
+      Number of concurrent translation workers. `0` uses the server default.
+    </ParamField>
+    <ParamField body="translation.rule_profile_name" type="string" default="general_sci">
+      Named rule profile controlling block classification and translation policy.
+    </ParamField>
+    <ParamField body="translation.start_page" type="number" default="0">
+      First page index to translate (0-based).
+    </ParamField>
+    <ParamField body="translation.end_page" type="number" default="-1">
+      Last page index to translate (inclusive). `-1` means all pages.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="render" type="object">
+  Rendering options. Applies to `book` and `render` workflows.
+
+  <Expandable title="render fields">
+    <ParamField body="render.render_mode" type="string" default="auto">
+      Render mode (e.g., `auto`).
+    </ParamField>
+    <ParamField body="render.compile_workers" type="number" default="0">
+      Number of Typst compile workers. `0` uses the server default.
+    </ParamField>
+    <ParamField body="render.typst_font_family" type="string">
+      Font family used for rendered text (e.g., `Source Han Serif SC`).
+    </ParamField>
+    <ParamField body="render.pdf_compress_dpi" type="number" default="200">
+      DPI used when compressing the output PDF.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="runtime" type="object">
+  Runtime execution settings.
+
+  <Expandable title="runtime fields">
+    <ParamField body="runtime.timeout_seconds" type="number" default="1800">
+      Maximum seconds before the job is terminated.
+    </ParamField>
+    <ParamField body="runtime.job_id" type="string">
+      Optional custom job ID. If omitted, the server generates one.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Minimal request body
+
+```json
+{
+  "workflow": "book",
+  "source": {
+    "upload_id": "20260327190000-ab12cd"
+  },
+  "ocr": {
+    "provider": "mineru",
+    "mineru_token": "mineru-xxxx",
+    "model_version": "vlm",
+    "language": "ch"
+  },
+  "translation": {
+    "mode": "sci",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-xxxx"
+  },
+  "render": {
+    "render_mode": "auto"
+  },
+  "runtime": {
+    "timeout_seconds": 1800
+  }
+}
+```
+
+### Workflow contract
+
+| Workflow | Stages run |
+|---|---|
+| `book` | OCR → Normalize → Translate → Render |
+| `translate` | OCR → Normalize → Translate |
+| `render` | Render only (uses `source.artifact_job_id`) |
+
+<Warning>
+  Credential fields (`ocr.mineru_token`, `ocr.paddle_token`, `translation.api_key`) are never echoed back in any response. Their presence is indicated by `*_configured` boolean fields instead.
+</Warning>
+
+### Response
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job_id": "20260327190500-ef3456",
+    "status": "queued",
+    "workflow": "book",
+    "links": {
+      "self_path": "/api/v1/jobs/20260327190500-ef3456",
+      "self_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456",
+      "artifacts_path": "/api/v1/jobs/20260327190500-ef3456/artifacts",
+      "artifacts_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/artifacts",
+      "events_path": "/api/v1/jobs/20260327190500-ef3456/events",
+      "events_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/events",
+      "cancel_path": "/api/v1/jobs/20260327190500-ef3456/cancel",
+      "cancel_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/cancel"
+    },
+    "actions": {
+      "open_job": {"enabled": true, "method": "GET", "path": "/api/v1/jobs/20260327190500-ef3456", "url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456"},
+      "open_artifacts": {"enabled": true, "method": "GET", "path": "/api/v1/jobs/20260327190500-ef3456/artifacts", "url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/artifacts"},
+      "cancel": {"enabled": true, "method": "POST", "path": "/api/v1/jobs/20260327190500-ef3456/cancel", "url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/cancel"},
+      "download_pdf": {"enabled": false, "method": "GET", "path": "/api/v1/jobs/20260327190500-ef3456/pdf", "url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/pdf"},
+      "open_markdown": {"enabled": false, "method": "GET", "path": "/api/v1/jobs/20260327190500-ef3456/markdown", "url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown"},
+      "download_bundle": {"enabled": false, "method": "GET", "path": "/api/v1/jobs/20260327190500-ef3456/download", "url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/download"}
+    }
+  }
+}
+```
+
+---
+
+## GET /api/v1/jobs — list jobs
+
+```http
+GET /api/v1/jobs?limit=20
+```
+
+<ParamField query="limit" type="number" default="20">
+  Maximum number of jobs to return.
+</ParamField>
+
+Returns a list of jobs in descending creation order. Each item includes `job_id`, `workflow`, `status`, `stage`, timestamps, and a `detail_url` for fetching the full job.
+
+---
+
+## GET /api/v1/jobs/{job_id} — get job detail
+
+```http
+GET /api/v1/jobs/{job_id}
+```
+
+<ParamField path="job_id" type="string" required>
+  The job ID returned when the job was created.
+</ParamField>
+
+### Key response fields
+
+<ResponseField name="status" type="string" required>
+  Current job status: `queued`, `running`, `succeeded`, `failed`, or `canceled`.
+</ResponseField>
+
+<ResponseField name="stage" type="string">
+  Current pipeline stage. Common values: `queued`, `ocr_submitting`, `ocr_processing`, `normalization`, `translation_prepare`, `translating`, `rendering`, `saving`, `finished`, `failed`, `canceled`.
+</ResponseField>
+
+<ResponseField name="stage_detail" type="string">
+  Human-readable detail for the current stage (e.g., `"正在翻译，第 3/12 批"`).
+</ResponseField>
+
+<ResponseField name="progress" type="object">
+  <Expandable title="progress fields">
+    <ResponseField name="current" type="number">Current unit of work.</ResponseField>
+    <ResponseField name="total" type="number">Total units of work.</ResponseField>
+    <ResponseField name="percent" type="number">Completion percentage (0–100).</ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="artifacts" type="object">
+  Artifact availability flags and download URLs. See [Artifacts](/api/artifacts) for the full field set.
+</ResponseField>
+
+<ResponseField name="normalization_summary" type="object">
+  Lightweight summary derived from the normalization report. Includes `provider`, `pages_seen`, `blocks_seen`, `page_count`, and `block_count`.
+</ResponseField>
+
+<ResponseField name="glossary_summary" type="object">
+  Glossary usage summary loaded from `translation-manifest.json`. Includes hit counts, unused entries, and override counts.
+</ResponseField>
+
+<ResponseField name="log_tail" type="array">
+  Last few log lines from the running worker. Redacted before leaving the API.
+</ResponseField>
+
+---
+
+## POST /api/v1/jobs/{job_id}/cancel — cancel a job
+
+```http
+POST /api/v1/jobs/{job_id}/cancel
+```
+
+<ParamField path="job_id" type="string" required>
+  The job ID to cancel.
+</ParamField>
+
+Sends a best-effort kill signal to the running Python worker process and marks the job as `canceled`. The response includes the updated job summary with `"status": "canceled"`.
+
+---
+
+## GET /api/v1/jobs/{job_id}/events — events stream
+
+```http
+GET /api/v1/jobs/{job_id}/events
+```
+
+<ParamField path="job_id" type="string" required>
+  The job ID.
+</ParamField>
+
+<ParamField query="limit" type="number">
+  Maximum number of events to return.
+</ParamField>
+
+<ParamField query="offset" type="number">
+  Number of events to skip from the start of the stream.
+</ParamField>
+
+Returns structured pipeline events in ascending `seq` order, merged from the database and from `logs/pipeline_events.jsonl`. Each event includes `job_id`, `seq`, `ts`, `level`, `stage`, `event_type`, `message`, and optional progress fields. Use this endpoint for progress display and debugging.
+
+---
+
+## GET /api/v1/jobs/{job_id}/pdf — download translated PDF
+
+```http
+GET /api/v1/jobs/{job_id}/pdf
+```
+
+Returns the final translated PDF as a raw `application/pdf` stream. Only available after the job has `succeeded`.
+
+---
+
+## GET /api/v1/jobs/{job_id}/markdown — get markdown
+
+```http
+GET /api/v1/jobs/{job_id}/markdown
+GET /api/v1/jobs/{job_id}/markdown?raw=true
+```
+
+Without `?raw=true`, returns a JSON envelope containing the markdown `content` string and image base URLs:
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job_id": "20260327190500-ef3456",
+    "content": "# title",
+    "raw_path": "/api/v1/jobs/20260327190500-ef3456/markdown?raw=true",
+    "raw_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown?raw=true",
+    "images_base_path": "/api/v1/jobs/20260327190500-ef3456/markdown/images/",
+    "images_base_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown/images/"
+  }
+}
+```
+
+With `?raw=true`, returns the raw markdown as `text/markdown; charset=utf-8`.
+
+---
+
+## GET /api/v1/jobs/{job_id}/download — download ZIP bundle
+
+```http
+GET /api/v1/jobs/{job_id}/download
+```
+
+Returns a `application/zip` archive containing the translated PDF, `markdown/full.md`, and `markdown/images/**` when those artifacts are present.
+
+---
+
+## POST /api/v1/translate/bundle — synchronous translate helper
+
+```http
+POST /api/v1/translate/bundle
+```
+
+A blocking alternative to the async job workflow. The request is `multipart/form-data` and includes the PDF file alongside flat translation fields. The endpoint blocks until the full pipeline completes, then returns a ZIP bundle directly — no polling required.
+
+<Note>
+  This endpoint uses a different field structure from `POST /api/v1/jobs`. Flat multipart fields (such as `provider`, `model`, `api_key`, `base_url`, `mineru_token`) are accepted here. It is intended for simple CLI integrations and one-off translations.
+</Note>
+
+```bash
+curl -X POST "http://127.0.0.1:40001/api/v1/translate/bundle" \
+  -H "X-API-Key: $X_API_KEY" \
+  -F "file=@/path/to/your.pdf" \
+  -F "mineru_token=$MINERU_TOKEN" \
+  -F "base_url=https://api.deepseek.com/v1" \
+  -F "api_key=$MODEL_API_KEY" \
+  -F "model=deepseek-chat" \
+  -F "mode=sci" \
+  -F "workers=100" \
+  -F "batch_size=1" \
+  -o result.zip
+```
+
+The response is a raw `application/zip` stream identical to the bundle returned by `GET /api/v1/jobs/{job_id}/download`.

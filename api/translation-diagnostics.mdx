@@ -1,0 +1,241 @@
+---
+title: "Inspect per-block translation diagnostics and replay items"
+description: "Endpoints to inspect per-block translation results, filter by status, retrieve raw items, and replay individual items for debugging."
+---
+
+RetainPDF records per-block translation diagnostics for every job, exposing why each block was translated, skipped, or kept as-is. These endpoints give you access to the full diagnostic artifact, a paginated and filterable item index, the raw saved payload for any item, and a replay hook that reruns the current translation code on a single item without mutating any job artifacts.
+
+<Warning>
+  These endpoints are intended for debugging. Sensitive fields such as `api_key`, `mineru_token`, and `paddle_token` are redacted in all responses. Inline secret substrings are replaced with `[REDACTED]`.
+</Warning>
+
+---
+
+## GET /api/v1/jobs/{job_id}/translation/diagnostics — summary
+
+```http
+GET /api/v1/jobs/{job_id}/translation/diagnostics
+```
+
+<ParamField path="job_id" type="string" required>
+  The job ID to retrieve diagnostics for.
+</ParamField>
+
+Returns a high-level summary of the translation run, including block counts grouped by final status.
+
+### Response fields
+
+<ResponseField name="job_id" type="string">The job identifier.</ResponseField>
+
+<ResponseField name="summary" type="object">
+  <Expandable title="summary fields">
+    <ResponseField name="schema" type="string">
+      Schema identifier (e.g., `translation_diagnostics_v1`).
+    </ResponseField>
+    <ResponseField name="counts" type="object">
+      <Expandable title="counts fields">
+        <ResponseField name="translated" type="integer">Number of blocks successfully translated.</ResponseField>
+        <ResponseField name="kept_origin" type="integer">Number of blocks kept in the original language.</ResponseField>
+        <ResponseField name="skipped" type="integer">Number of blocks skipped entirely.</ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="provider_family" type="string">
+      The LLM provider family used (e.g., `deepseek`).
+    </ResponseField>
+    <ResponseField name="final_status_counts" type="object">
+      Per-status counts mirroring `counts`. Included for forward compatibility.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job_id": "20260416034152-d12925",
+    "summary": {
+      "schema": "translation_diagnostics_v1",
+      "counts": {
+        "translated": 412,
+        "kept_origin": 18,
+        "skipped": 97
+      },
+      "provider_family": "deepseek",
+      "final_status_counts": {
+        "translated": 412,
+        "kept_origin": 18,
+        "skipped": 97
+      }
+    }
+  }
+}
+```
+
+---
+
+## GET /api/v1/jobs/{job_id}/translation/items — paginated item list
+
+```http
+GET /api/v1/jobs/{job_id}/translation/items
+```
+
+<ParamField path="job_id" type="string" required>
+  The job ID.
+</ParamField>
+
+<ParamField query="limit" type="number" default="20">
+  Maximum number of items to return per page.
+</ParamField>
+
+<ParamField query="offset" type="number" default="0">
+  Number of items to skip.
+</ParamField>
+
+<ParamField query="page" type="number">
+  Page number (alternative to `offset`).
+</ParamField>
+
+<ParamField query="final_status" type="string">
+  Filter by final status: `translated`, `kept_origin`, or `skipped`.
+</ParamField>
+
+<ParamField query="error_type" type="string">
+  Filter to items that encountered a specific error type (e.g., `TranslationProtocolError`).
+</ParamField>
+
+<ParamField query="route" type="string">
+  Filter by translation route path segment.
+</ParamField>
+
+<ParamField query="q" type="string">
+  Free-text search against source and translated preview text.
+</ParamField>
+
+### Item fields
+
+<ResponseField name="item_id" type="string">Block identifier (e.g., `p006-b014`).</ResponseField>
+<ResponseField name="page_idx" type="integer">Zero-based page index.</ResponseField>
+<ResponseField name="block_idx" type="integer">Block index within the page.</ResponseField>
+<ResponseField name="block_type" type="string">Block type (e.g., `text`, `table`).</ResponseField>
+<ResponseField name="final_status" type="string">Final disposition: `translated`, `kept_origin`, or `skipped`.</ResponseField>
+<ResponseField name="source_preview" type="string">Truncated source text for display.</ResponseField>
+<ResponseField name="translated_preview" type="string">Truncated translated text for display. Empty if not translated.</ResponseField>
+<ResponseField name="route_path" type="array">Ordered list of route labels describing how the block was processed.</ResponseField>
+<ResponseField name="error_types" type="array">List of error type strings recorded for this item.</ResponseField>
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "items": [
+      {
+        "item_id": "p006-b014",
+        "page_idx": 5,
+        "page_number": 6,
+        "block_idx": 14,
+        "block_type": "text",
+        "math_mode": "direct_typst",
+        "classification_label": "body",
+        "should_translate": true,
+        "final_status": "kept_origin",
+        "source_preview": "Formation of heterocycle 9 improves hyperconjugation...",
+        "translated_preview": "",
+        "route_path": ["direct_typst", "single_item"],
+        "fallback_to": "sentence_level",
+        "degradation_reason": "transport_error",
+        "error_types": ["TranslationProtocolError"]
+      }
+    ],
+    "total": 1,
+    "limit": 20,
+    "offset": 0
+  }
+}
+```
+
+---
+
+## GET /api/v1/jobs/{job_id}/translation/items/{item_id} — raw item detail
+
+```http
+GET /api/v1/jobs/{job_id}/translation/items/{item_id}
+```
+
+<ParamField path="job_id" type="string" required>The job ID.</ParamField>
+<ParamField path="item_id" type="string" required>
+  The item ID (e.g., `p006-b014`).
+</ParamField>
+
+Returns the full saved payload for a single translation item. The shape matches the item objects in the paginated list, with additional internal fields. All sensitive fields and inline secrets are redacted.
+
+---
+
+## POST /api/v1/jobs/{job_id}/translation/items/{item_id}/replay — replay an item
+
+```http
+POST /api/v1/jobs/{job_id}/translation/items/{item_id}/replay
+```
+
+<ParamField path="job_id" type="string" required>The job ID.</ParamField>
+<ParamField path="item_id" type="string" required>The item ID to replay.</ParamField>
+
+Replays translation for a single item without mutating any job artifacts. The replay process:
+
+1. Loads the saved item payload from the job's artifact directory.
+2. Re-applies the current translation policy to determine whether the item should be translated.
+3. If the item qualifies, reruns `translate_batch([item])` against the configured LLM.
+4. Returns `policy_before`, `policy_after`, and the `replay_result`.
+
+The response is redacted with the same rules as all other diagnostics endpoints.
+
+### Response
+
+<ResponseField name="policy_before" type="object">
+  The policy state as recorded in the original job run (`should_translate`, `final_status`).
+</ResponseField>
+
+<ResponseField name="policy_after" type="object">
+  The policy state computed by the current policy code during replay.
+</ResponseField>
+
+<ResponseField name="replay_result" type="object">
+  <Expandable title="replay_result fields">
+    <ResponseField name="translated_text" type="string">
+      The translated text produced by the replay run.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "job_id": "20260416034152-d12925",
+    "item_id": "p006-b014",
+    "payload": {
+      "job_id": "20260416034152-d12925",
+      "item_id": "p006-b014",
+      "page_idx": 5,
+      "policy_before": {
+        "should_translate": true,
+        "final_status": "kept_origin"
+      },
+      "policy_after": {
+        "should_translate": true,
+        "final_status": "translated"
+      },
+      "replay_result": {
+        "translated_text": "杂环 9 的形成增强了超共轭作用……"
+      },
+      "replay_error": null
+    }
+  }
+}
+```
+
+<Note>
+  Replay is designed for local debugging and regression fixture generation. It is not optimized for bulk export or high-throughput use.
+</Note>

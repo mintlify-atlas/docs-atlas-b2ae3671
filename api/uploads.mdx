@@ -1,0 +1,100 @@
+---
+title: "POST /api/v1/uploads — Upload a PDF file"
+description: "POST /api/v1/uploads accepts a multipart PDF and returns upload_id, filename, page_count, and bytes. The upload_id is required to create a translation job."
+---
+
+Before creating a translation job, upload the source PDF using the uploads endpoint. The response includes an `upload_id` that you pass to `POST /api/v1/jobs` when creating a job. Every upload is stored server-side and referenced by its ID throughout the job lifecycle.
+
+## Endpoint
+
+```http
+POST /api/v1/uploads
+```
+
+## Authentication
+
+<ParamField header="X-API-Key" type="string" required>
+  Your RetainPDF API key. Required on every request except `GET /health`.
+</ParamField>
+
+## Request
+
+The request body must be `multipart/form-data`.
+
+<ParamField body="file" type="file" required>
+  The PDF file to upload.
+</ParamField>
+
+<ParamField body="developer_mode" type="boolean">
+  When set to `true`, enables developer mode for the upload. Accepts `true` or `false`. Optional.
+</ParamField>
+
+### Upload limits
+
+Upload limits are controlled by two environment variables on the server:
+
+| Variable | Description |
+|---|---|
+| `RUST_API_UPLOAD_MAX_BYTES` | Maximum allowed file size in bytes. Set to `0` to disable. |
+| `RUST_API_UPLOAD_MAX_PAGES` | Maximum allowed page count. Set to `0` to disable. |
+
+<Note>
+  Either limit set to `0` means that limit is disabled. If both are `0`, no size or page restrictions are enforced.
+</Note>
+
+## Response
+
+<ResponseField name="upload_id" type="string" required>
+  Unique identifier for the uploaded file. Use this value in `source.upload_id` when creating a job.
+</ResponseField>
+
+<ResponseField name="filename" type="string" required>
+  The original filename of the uploaded PDF.
+</ResponseField>
+
+<ResponseField name="bytes" type="integer" required>
+  File size in bytes.
+</ResponseField>
+
+<ResponseField name="page_count" type="integer" required>
+  Number of pages detected in the PDF.
+</ResponseField>
+
+<ResponseField name="uploaded_at" type="string" required>
+  ISO 8601 timestamp of when the file was stored.
+</ResponseField>
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "upload_id": "20260327190000-ab12cd",
+    "filename": "paper.pdf",
+    "bytes": 1234567,
+    "page_count": 18,
+    "uploaded_at": "2026-03-27T11:00:00Z"
+  }
+}
+```
+
+## Example
+
+```bash
+curl -X POST http://127.0.0.1:41000/api/v1/uploads \
+  -H "X-API-Key: your-rust-api-key" \
+  -F "file=@/path/to/paper.pdf"
+```
+
+To enable developer mode:
+
+```bash
+curl -X POST http://127.0.0.1:41000/api/v1/uploads \
+  -H "X-API-Key: your-rust-api-key" \
+  -F "file=@/path/to/paper.pdf" \
+  -F "developer_mode=true"
+```
+
+## Next step
+
+Pass the returned `upload_id` to `POST /api/v1/jobs` in the `source.upload_id` field to start a translation job.

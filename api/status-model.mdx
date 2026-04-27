@@ -1,0 +1,184 @@
+---
+title: "Job status and pipeline stages in RetainPDF"
+description: "RetainPDF jobs move through five status values and fifteen stages. Understand each stage, poll for progress, and read the data.failure object on errors."
+---
+
+Every RetainPDF job moves through a defined set of status and stage values as it progresses through the translation pipeline. Understanding these values lets you build accurate progress displays, handle errors correctly, and know when results are ready to download.
+
+## Job status values
+
+The top-level `status` field reflects the coarse lifecycle of a job.
+
+| Status      | Description |
+|-------------|-------------|
+| `queued`    | Job has been created and is waiting for a concurrency slot to open. |
+| `running`   | Job is actively executing; check `stage` for granular progress.    |
+| `succeeded` | Job completed successfully; output artifacts are available.         |
+| `failed`    | Job encountered an unrecoverable error; see `data.failure` for details. |
+| `canceled`  | Job was stopped via `POST /api/v1/jobs/{job_id}/cancel`.           |
+
+## Pipeline stage values
+
+The `stage` field provides fine-grained visibility into which step of the translation pipeline is currently executing. Stage values follow the unified pipeline stage enum.
+
+| Stage                 | Description |
+|-----------------------|-------------|
+| `queued`              | Waiting in the queue before execution begins. |
+| `startup`             | Job process is initializing. |
+| `ocr_submitting`      | Submitting the PDF to the OCR provider. |
+| `ocr_processing`      | Waiting for the OCR provider to complete processing. |
+| `normalization`       | Converting raw OCR output to the internal `document.v1` format. |
+| `translation_prepare` | Loading glossaries, rules, and translation configuration. |
+| `domain_inference`    | Classifying content blocks by domain (e.g., scientific, general). |
+| `continuation_review` | Reviewing block boundaries for multi-block continuation groups. |
+| `page_policies`       | Applying per-page translation policies. |
+| `translating`         | Sending text batches to the LLM for translation. |
+| `render_prepare`      | Preparing Typst rendering configuration and font assets. |
+| `rendering`           | Compiling translated content into PDF pages. |
+| `saving`              | Writing final output artifacts to storage. |
+| `finished`            | All steps completed; artifacts are persisted and ready. |
+| `failed`              | Pipeline stopped due to an error. |
+| `canceled`            | Pipeline was canceled by request. |
+
+### Provider-specific stage values
+
+Provider-private progress appears in the `provider_stage` field rather than the top-level `stage` enum. These values are informational and may appear during `ocr_processing`:
+
+| `provider_stage` value | Provider   | Meaning |
+|------------------------|------------|---------|
+| `mineru_upload`        | MinerU     | Uploading the PDF file to MinerU's service. |
+| `mineru_processing`    | MinerU     | MinerU is running OCR on the document. |
+| `paddle_running`       | PaddleOCR  | PaddleOCR is processing the document. |
+
+## Progress fields
+
+When `status` is `running`, the `progress` object provides numeric progress information for the current stage.
+
+<ResponseField name="progress.current" type="integer">
+  Number of units completed in the current stage (e.g., batches translated).
+</ResponseField>
+
+<ResponseField name="progress.total" type="integer">
+  Total number of units in the current stage.
+</ResponseField>
+
+<ResponseField name="progress.percent" type="number">
+  Completion percentage for the current stage, from `0.0` to `100.0`.
+</ResponseField>
+
+**Example** — a job mid-translation:
+
+```json
+{
+  "status": "running",
+  "stage": "translating",
+  "stage_detail": "正在翻译，第 3/12 批",
+  "progress": {
+    "current": 3,
+    "total": 12,
+    "percent": 25.0
+  }
+}
+```
+
+## How to poll for job completion
+
+Use `GET /api/v1/jobs/{job_id}` and inspect `status` and `stage` on each response:
+
+```bash
+curl https://your-retainpdf-host:41000/api/v1/jobs/20260327190500-ef3456 \
+  -H "X-API-Key: your-key"
+```
+
+A job is complete when `status` is `succeeded`, `failed`, or `canceled`. Poll at a reasonable interval (e.g., every 5 seconds) rather than in a tight loop.
+
+<Tip>
+  The `stage_detail` field contains a human-readable description of current progress and is safe to display directly in a UI.
+</Tip>
+
+## Events stream
+
+For a detailed timeline of what happened during a job, use the events endpoint:
+
+```http
+GET /api/v1/jobs/{job_id}/events
+```
+
+Events are returned in ascending `seq` order. Each event includes:
+
+| Field             | Description |
+|-------------------|-------------|
+| `seq`             | Monotonic sequence number. |
+| `ts`              | Timestamp of the event. |
+| `level`           | Log level (e.g., `info`, `warn`, `error`). |
+| `stage`           | Unified pipeline stage at the time of the event. |
+| `event_type`      | Structured event type (prefer over legacy `event` alias). |
+| `message`         | Human-readable event description. |
+| `provider`        | OCR provider name, when relevant. |
+| `provider_stage`  | Provider-specific stage, when relevant. |
+| `progress_current`| Progress numerator at the time of the event. |
+| `progress_total`  | Progress denominator at the time of the event. |
+| `elapsed_ms`      | Milliseconds elapsed since the job started. |
+
+<Note>
+  The `event` field is a legacy alias kept for backward compatibility. New clients should prefer `event_type`.
+</Note>
+
+Query parameters `limit` and `offset` allow paginating through large event logs.
+
+## Failure fields
+
+When a job enters `status: failed`, the `data.failure` object contains structured diagnostics.
+
+<ResponseField name="data.failure.failed_stage" type="string">
+  The pipeline stage where the failure occurred.
+</ResponseField>
+
+<ResponseField name="data.failure.failure_code" type="string">
+  A machine-readable code identifying the specific failure type.
+</ResponseField>
+
+<ResponseField name="data.failure.failure_category" type="string">
+  Broad category of the failure (e.g., `provider_error`, `timeout`).
+</ResponseField>
+
+<ResponseField name="data.failure.retryable" type="boolean">
+  Whether submitting the job again is likely to succeed.
+</ResponseField>
+
+<ResponseField name="data.failure.root_cause" type="string">
+  A description of the underlying cause of the failure.
+</ResponseField>
+
+<ResponseField name="data.failure.suggestion" type="string">
+  Recommended action to resolve the failure.
+</ResponseField>
+
+**Example failure object:**
+
+```json
+{
+  "data": {
+    "failure": {
+      "failed_stage": "ocr_processing",
+      "failure_code": "provider_timeout",
+      "failure_category": "provider_error",
+      "retryable": true,
+      "root_cause": "MinerU did not return a result within the poll timeout window.",
+      "suggestion": "Increase ocr.poll_timeout or retry the job."
+    }
+  }
+}
+```
+
+<Warning>
+  The `data.failure_diagnostic` field is a compatibility projection derived from `data.failure` for older clients. New integrations should read from `data.failure` directly.
+</Warning>
+
+## Queue semantics
+
+<ResponseField name="RUST_API_MAX_RUNNING_JOBS" type="integer">
+  Maximum number of jobs that may have `status: running` simultaneously. Defaults to `4`. Newly created jobs enter `queued` and start automatically when a running job finishes and a slot opens.
+</ResponseField>
+
+Jobs in the queue are promoted to `running` on a first-come, first-served basis whenever a concurrency slot becomes available. There is no manual intervention required to dequeue a job.

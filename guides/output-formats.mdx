@@ -1,0 +1,156 @@
+---
+title: "Download and use RetainPDF translation outputs"
+description: "Download translated PDF, Markdown, or ZIP from completed RetainPDF jobs. Covers readiness flags, download endpoints, and normalized document debug outputs."
+---
+
+After a successful translation job, RetainPDF makes results available in three formats: a layout-preserved translated PDF, a Markdown document with images, and a ZIP bundle containing all of the above. You can download whichever format suits your workflow once the job reaches `status: "succeeded"`.
+
+## Checking which formats are ready
+
+Before downloading, query the job detail endpoint and inspect the `artifacts` object:
+
+```bash
+curl http://127.0.0.1:41000/api/v1/jobs/{job_id} \
+  -H "X-API-Key: your-rust-api-key"
+```
+
+The `artifacts` object in the response shows readiness flags for each format:
+
+```json
+{
+  "artifacts": {
+    "pdf_ready": true,
+    "markdown_ready": true,
+    "bundle_ready": true,
+    "pdf_url": "/api/v1/jobs/20260327190500-ef3456/pdf",
+    "markdown_url": "/api/v1/jobs/20260327190500-ef3456/markdown",
+    "markdown_images_base_url": "/api/v1/jobs/20260327190500-ef3456/markdown/images/",
+    "bundle_url": "/api/v1/jobs/20260327190500-ef3456/download"
+  }
+}
+```
+
+Wait until `pdf_ready`, `markdown_ready`, or `bundle_ready` is `true` before downloading the corresponding format. For `workflow: "translate"` jobs (no render step), `pdf_ready` will remain `false`.
+
+## Output formats
+
+<Tabs>
+  <Tab title="PDF">
+    ### Translated PDF
+
+    `GET /api/v1/jobs/{job_id}/pdf`
+
+    Returns the layout-preserved translated PDF as `application/pdf`. The file name in the response matches the original document name with a `-translated` suffix (e.g. `paper-translated.pdf`).
+
+    ```bash
+    curl -O http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/pdf \
+      -H "X-API-Key: your-rust-api-key"
+    ```
+
+    This is the primary deliverable for most use cases. RetainPDF re-renders every page using Typst, preserving the original bounding boxes, font sizes, and layout structure.
+  </Tab>
+  <Tab title="Markdown">
+    ### Markdown document
+
+    RetainPDF produces two variants of the Markdown output:
+
+    | Endpoint | Content-Type | Description |
+    |---|---|---|
+    | `GET /api/v1/jobs/{job_id}/markdown` | `application/json` | JSON envelope containing the Markdown content string and image base URL |
+    | `GET /api/v1/jobs/{job_id}/markdown?raw=true` | `text/markdown; charset=utf-8` | Raw `.md` file stream |
+
+    #### JSON envelope
+
+    ```bash
+    curl http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown \
+      -H "X-API-Key: your-rust-api-key"
+    ```
+
+    ```json
+    {
+      "code": 0,
+      "message": "ok",
+      "data": {
+        "job_id": "20260327190500-ef3456",
+        "content": "# Title\n\n...",
+        "raw_path": "/api/v1/jobs/20260327190500-ef3456/markdown?raw=true",
+        "images_base_path": "/api/v1/jobs/20260327190500-ef3456/markdown/images/",
+        "images_base_url": "http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown/images/"
+      }
+    }
+    ```
+
+    #### Raw Markdown
+
+    ```bash
+    curl -O http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/markdown?raw=true \
+      -H "X-API-Key: your-rust-api-key"
+    ```
+
+    #### Images
+
+    Images referenced in the Markdown are served individually:
+
+    ```
+    GET /api/v1/jobs/{job_id}/markdown/images/{path}
+    ```
+
+    The `images_base_url` in the Markdown response gives you the base path. Append the image filename from the Markdown content to construct the full image URL.
+  </Tab>
+  <Tab title="ZIP bundle">
+    ### ZIP bundle
+
+    `GET /api/v1/jobs/{job_id}/download`
+
+    Returns a `application/zip` archive containing all job outputs in one download:
+
+    - The final translated PDF
+    - `markdown/full.md` (if Markdown is available)
+    - `markdown/images/**` (all referenced images, if present)
+
+    ```bash
+    curl -O http://127.0.0.1:41000/api/v1/jobs/20260327190500-ef3456/download \
+      -H "X-API-Key: your-rust-api-key"
+    ```
+
+    The ZIP filename matches the job ID (e.g. `20260327190500-ef3456.zip`).
+
+    <Tip>
+      Use the ZIP bundle when archiving completed translations or sharing results with colleagues. It packages the PDF, structured Markdown text, and all extracted images into a single self-contained file.
+    </Tip>
+  </Tab>
+</Tabs>
+
+## Download summary
+
+| Format | Endpoint | Content-Type | Readiness flag |
+|---|---|---|---|
+| Translated PDF | `GET /api/v1/jobs/{job_id}/pdf` | `application/pdf` | `artifacts.pdf_ready` |
+| Markdown (JSON) | `GET /api/v1/jobs/{job_id}/markdown` | `application/json` | `artifacts.markdown_ready` |
+| Markdown (raw) | `GET /api/v1/jobs/{job_id}/markdown?raw=true` | `text/markdown` | `artifacts.markdown_ready` |
+| Markdown image | `GET /api/v1/jobs/{job_id}/markdown/images/{path}` | image stream | `artifacts.markdown_ready` |
+| ZIP bundle | `GET /api/v1/jobs/{job_id}/download` | `application/zip` | `artifacts.bundle_ready` |
+
+## Debugging outputs
+
+<AccordionGroup>
+  <Accordion title="Normalized document and normalization report">
+    RetainPDF exposes two additional artifacts useful for understanding how the OCR output was interpreted before translation.
+
+    **Normalized document** — the structured `document.v1.json` produced by the normalization stage. This is the internal representation that the translation worker consumes.
+
+    ```bash
+    curl http://127.0.0.1:41000/api/v1/jobs/{job_id}/normalized-document \
+      -H "X-API-Key: your-rust-api-key"
+    ```
+
+    **Normalization report** — a lightweight report (`document.v1.report.json`) summarising how normalization defaults were applied: page count, block count, schema version, and provider-specific stats.
+
+    ```bash
+    curl http://127.0.0.1:41000/api/v1/jobs/{job_id}/normalization-report \
+      -H "X-API-Key: your-rust-api-key"
+    ```
+
+    Both endpoints return JSON. Check `artifacts.normalized_document.ready` and `artifacts.normalization_report.ready` in the job detail response before fetching them — they are available as soon as the OCR normalization stage completes, even while translation is still running.
+  </Accordion>
+</AccordionGroup>

@@ -1,0 +1,133 @@
+---
+title: "MinerU vs PaddleOCR: choosing your OCR provider"
+description: "Compare MinerU and PaddleOCR in RetainPDF: required tokens, VLM model options, provider-specific settings, and token validation endpoints."
+---
+
+RetainPDF supports two OCR providers that handle document extraction differently. MinerU is the main production provider and uses a vision-language model (VLM) pipeline optimised for scientific papers and scanned documents. PaddleOCR is an alternative integration primarily intended for development and debugging. Selecting the right provider for your workload affects both extraction quality and the credentials you need to supply.
+
+## Provider comparison
+
+<CardGroup cols={2}>
+  <Card title="MinerU" icon="star">
+    **Production provider.** Uses a VLM-based model (`vlm`) to extract text, formulas, and tables from complex PDFs including scanned and image-only documents. Recommended for all scientific and production workloads.
+
+    Required field: `ocr.mineru_token`
+  </Card>
+  <Card title="PaddleOCR" icon="wrench">
+    **Development / debug provider.** An alternative OCR backend useful for testing pipelines or comparing extraction results. Not recommended for production scientific translation.
+
+    Required field: `ocr.paddle_token`
+  </Card>
+</CardGroup>
+
+## How to select a provider
+
+Set `ocr.provider` in the job request body to either `"mineru"` or `"paddle"`. You must also supply the matching token field; the API rejects requests where the token for the selected provider is missing.
+
+```json
+{
+  "ocr": {
+    "provider": "mineru",
+    "mineru_token": "mineru-xxxx"
+  }
+}
+```
+
+## MinerU configuration
+
+MinerU exposes several options that control how the VLM model processes the document.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `model_version` | string | `"vlm"` | Model version to use. Currently `vlm` is the active production model. |
+| `language` | string | `"ch"` | Primary document language hint passed to the OCR backend. |
+| `page_ranges` | string | `""` | Restrict OCR to specific page ranges, e.g. `"1-5,8"`. Empty means all pages. |
+| `is_ocr` | boolean | `false` | Force OCR mode even on selectable-text PDFs. |
+| `disable_formula` | boolean | `false` | Skip formula extraction. Useful when formulas cause parsing errors. |
+| `disable_table` | boolean | `false` | Skip table extraction. |
+| `no_cache` | boolean | `false` | Bypass MinerU's server-side result cache and force a fresh run. |
+| `poll_interval` | integer | `5` | Seconds between status polls while waiting for MinerU to finish. |
+| `poll_timeout` | integer | `1800` | Maximum seconds to wait for MinerU before the job fails. |
+
+## PaddleOCR configuration
+
+PaddleOCR requires `ocr.paddle_token` and optionally a `base_url` pointing to your PaddleOCR deployment. No additional model-level options are exposed in the current API.
+
+## Validating tokens before submitting a job
+
+RetainPDF provides dedicated validation endpoints so you can confirm credentials are accepted before creating a full job.
+
+<Tabs>
+  <Tab title="MinerU">
+    ```bash
+    curl -X POST http://127.0.0.1:41000/api/v1/providers/mineru/validate-token \
+      -H "X-API-Key: your-rust-api-key" \
+      -H "Content-Type: application/json" \
+      -d '{"mineru_token": "mineru-xxxx"}'
+    ```
+  </Tab>
+  <Tab title="PaddleOCR">
+    ```bash
+    curl -X POST http://127.0.0.1:41000/api/v1/providers/paddle/validate-token \
+      -H "X-API-Key: your-rust-api-key" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "paddle_token": "paddle-access-token",
+        "base_url": "https://paddleocr.aistudio-app.com"
+      }'
+    ```
+  </Tab>
+</Tabs>
+
+Both endpoints return a validation result with the following fields:
+
+| Field | Description |
+|---|---|
+| `ok` | `true` if the token was accepted |
+| `status` | Human-readable status string |
+| `summary` | Brief explanation of the result |
+| `retryable` | Whether a transient failure can be retried |
+| `provider_code` | Raw status code returned by the upstream provider |
+| `provider_message` | Raw message returned by the upstream provider |
+| `operator_hint` | Suggested action if validation failed |
+| `trace_id` | Request trace identifier for support |
+
+<Note>
+  The PaddleOCR validation endpoint does **not** submit a real OCR task. It uses a random `jobId` as an authentication probe. When PaddleOCR returns a "job not found / 404" response, the backend treats that as a successful auth confirmation — it means your token was accepted but the dummy job ID simply does not exist. A `401` or `403` response from PaddleOCR is still treated as an invalid token.
+</Note>
+
+## Full job request example (MinerU)
+
+```json
+{
+  "workflow": "book",
+  "source": {
+    "upload_id": "20260402073151-a80618"
+  },
+  "ocr": {
+    "provider": "mineru",
+    "mineru_token": "mineru-xxxx",
+    "model_version": "vlm",
+    "language": "ch",
+    "page_ranges": "",
+    "is_ocr": false,
+    "disable_formula": false,
+    "disable_table": false,
+    "no_cache": false,
+    "poll_interval": 5,
+    "poll_timeout": 1800
+  },
+  "translation": {
+    "mode": "sci",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-xxxx"
+  },
+  "render": {
+    "render_mode": "auto"
+  },
+  "runtime": {
+    "timeout_seconds": 1800
+  }
+}
+```
